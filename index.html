@@ -373,6 +373,15 @@ button:active { transform: scale(0.98); }
       </div>
       <div style="font-size:10px;color:var(--text-secondary);">Paste your ngrok URL above, or leave blank for localhost:5000</div>
     </div>
+    <div class="panel" style="padding:10px 12px;">
+      <div class="panel-title" style="margin-bottom:6px;"><i class="ti ti-router"></i> Watcher URL</div>
+      <div style="display:flex;gap:5px;">
+        <input type="text" id="ngrok-url-input" placeholder="https://xxxx.ngrok-free.app" style="flex:1;font-size:11px;" />
+        <button onclick="saveWatcherUrl()" style="padding:0 10px;font-size:11px;">Set</button>
+      </div>
+      <div style="font-size:10px;color:var(--text-secondary);margin-top:4px;">Paste your ngrok URL each session</div>
+    </div>
+
     <div id="watcher-status" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
       <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Enter your ngrok URL above and start watcher.py</span>
     </div>
@@ -711,12 +720,31 @@ function setWatcherUrl() {
   if (input && WATCHER_URL !== 'http://127.0.0.1:5000') input.value = WATCHER_URL;
 })();
 
+function saveWatcherUrl() {
+  const input = document.getElementById('ngrok-url-input');
+  const val = input.value.trim().replace(/\/+$/, '');
+  if (!val) return;
+  WATCHER_URL = val;
+  localStorage.setItem('mtgWatcherUrl', val);
+  watcherConnected = false;
+  pollWatcher();
+  input.style.borderColor = '#1D9E75';
+  setTimeout(() => input.style.borderColor = '', 1500);
+}
+
+// Restore saved URL
+(function() {
+  const saved = localStorage.getItem('mtgWatcherUrl') || '';
+  const input = document.getElementById('ngrok-url-input');
+  if (input && saved) { input.value = saved; WATCHER_URL = saved; }
+})();
+
 renderFormats();
 renderTags();
 
 /* ── Arena watcher polling ─────────────────────────────────────── */
 // Watcher URL — set to your ngrok URL when using Netlify
-var WATCHER_URL = 'https://plus-provided-giddy.ngrok-free.dev'; /* hardcoded ngrok */
+var WATCHER_URL = localStorage.getItem('mtgWatcherUrl') || '';
 let watcherConnected = false;
 let lastSeenCards = [];
 let lastGameState = {};
