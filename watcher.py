@@ -373,7 +373,8 @@ class Handler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin","*")
         self.send_header("Access-Control-Allow-Methods","GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers","Content-Type")
+        self.send_header("Access-Control-Allow-Headers","Content-Type, ngrok-skip-browser-warning")
+        self.send_header("ngrok-skip-browser-warning", "1")
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

@@ -365,8 +365,16 @@ button:active { transform: scale(0.98); }
 
     <div id="game-state-panel" style="display:none;"></div>
 
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:11px;color:var(--text-secondary);"><i class="ti ti-router" style="font-size:13px;vertical-align:-2px;margin-right:3px"></i> Watcher URL</label>
+      <div style="display:flex;gap:5px;">
+        <input type="text" id="watcher-url-input" placeholder="https://abc123.ngrok-free.app" style="flex:1;font-size:11px;" />
+        <button onclick="setWatcherUrl()" style="padding:0 10px;font-size:11px;">Set</button>
+      </div>
+      <div style="font-size:10px;color:var(--text-secondary);">Paste your ngrok URL above, or leave blank for localhost:5000</div>
+    </div>
     <div id="watcher-status" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
-      <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Checking for Arena watcher...</span>
+      <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Enter your ngrok URL above and start watcher.py</span>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto;">
@@ -688,11 +696,31 @@ function clearFeed() {
 }
 function newGame() { clearAll(); clearFeed(); }
 
+function setWatcherUrl() {
+  const input = document.getElementById('watcher-url-input');
+  const val = input.value.trim().replace(/\/+$/, ''); // strip trailing slash
+  WATCHER_URL = val || 'http://127.0.0.1:5000';
+  localStorage.setItem('watcherUrl', val);
+  watcherConnected = false;
+  pollWatcher();
+}
+
+// Restore saved URL on load
+(function() {
+  const saved = localStorage.getItem('watcherUrl') || '';
+  const input = document.getElementById('watcher-url-input');
+  if (input && saved) { input.value = saved; WATCHER_URL = saved; }
+  else if (!saved) { WATCHER_URL = 'http://127.0.0.1:5000'; }
+})();
+
 renderFormats();
 renderTags();
 
 /* ── Arena watcher polling ─────────────────────────────────────── */
-const WATCHER_URL = "http://localhost:5000";
+// Watcher URL — set to your ngrok URL when using Netlify
+// e.g. "https://abc123.ngrok-free.app"
+const SAVED_URL = localStorage.getItem('watcherUrl') || '';
+let WATCHER_URL = SAVED_URL;
 let watcherConnected = false;
 let lastSeenCards = [];
 let lastGameState = {};
@@ -743,7 +771,7 @@ function renderGameState(s) {
 
 async function pollWatcher() {
   try {
-    const resp = await fetch(WATCHER_URL + "/state", { signal: AbortSignal.timeout(1500) });
+    const resp = await fetch(WATCHER_URL + "/state", { signal: AbortSignal.timeout(1500), headers: {"ngrok-skip-browser-warning": "1"} });
     if (!resp.ok) throw new Error("bad");
     const data = await resp.json();
     updateWatcherStatus(true);
@@ -770,7 +798,7 @@ async function pollWatcher() {
 }
 
 async function resetWatcher() {
-  try { await fetch(WATCHER_URL + "/reset", { signal: AbortSignal.timeout(1500) }); } catch(e) {}
+  try { await fetch(WATCHER_URL + "/reset", { signal: AbortSignal.timeout(1500), headers: {"ngrok-skip-browser-warning": "1"} }); } catch(e) {}
   lastSeenCards = [];
   lastGameState = {};
 }
