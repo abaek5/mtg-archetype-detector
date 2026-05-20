@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG Archetype Detector</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg: #ffffff;
+  --bg-secondary: #f5f5f2;
+  --bg-tertiary: #eeede8;
+  --text: #1a1a1a;
+  --text-secondary: #6b6b68;
+  --border: rgba(0,0,0,0.12);
+  --border-secondary: rgba(0,0,0,0.22);
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --accent: #1D9E75;
+  --accent-ai: #7F77DD;
+  --accent-advice: #378ADD;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1a;
+    --bg-secondary: #252522;
+    --bg-tertiary: #2e2e2b;
+    --text: #f0efe8;
+    --text-secondary: #9a9a95;
+    --border: rgba(255,255,255,0.1);
+    --border-secondary: rgba(255,255,255,0.2);
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg-tertiary);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.topbar {
+  background: var(--bg);
+  border-bottom: 0.5px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar-title {
+  font-size: 15px; font-weight: 500; color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+
+.topbar-title .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.topbar-sub { font-size: 12px; color: var(--text-secondary); }
+
+/* ── layout ── */
+.app { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 45px); }
+
+.sidebar {
+  background: var(--bg);
+  border-right: 0.5px solid var(--border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  position: sticky;
+  top: 45px;
+  height: calc(100vh - 45px);
+}
+
+.feed {
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 650px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; border-right: none; border-bottom: 0.5px solid var(--border); }
+  .feed { padding: 12px; }
+}
+
+/* ── shared components ── */
+.section-label {
+  font-size: 11px; font-weight: 500; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;
+}
+
+.panel { background: var(--bg-secondary); border-radius: var(--radius-lg); padding: 12px 14px; }
+.panel-title { font-size: 13px; font-weight: 500; color: var(--text); margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
+.panel-title i { font-size: 15px; color: var(--text-secondary); }
+
+textarea {
+  width: 100%; height: 120px; resize: vertical;
+  font-size: 11px; font-family: 'SF Mono', 'Consolas', monospace;
+  background: var(--bg); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: var(--radius-md);
+  padding: 7px 9px; outline: none;
+}
+textarea:focus { border-color: var(--border-secondary); }
+
+input[type="text"], input[type="password"] {
+  background: var(--bg); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: var(--radius-md);
+  padding: 0 9px; height: 32px; font-size: 13px; outline: none;
+  font-family: inherit; width: 100%;
+}
+input[type="text"]:focus, input[type="password"]:focus { border-color: var(--border-secondary); }
+
+button {
+  background: var(--bg); color: var(--text);
+  border: 0.5px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  padding: 5px 12px; font-size: 12px;
+  cursor: pointer; font-family: inherit;
+  transition: background 0.12s, transform 0.1s;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+button:hover { background: var(--bg-secondary); }
+button:active { transform: scale(0.98); }
+
+.parse-btn { width: 100%; justify-content: center; margin-top: 6px; font-size: 12px; }
+
+.format-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.fmt-btn {
+  font-size: 11px; padding: 3px 10px; border-radius: 999px;
+  border: 0.5px solid var(--border-secondary);
+  background: var(--bg); color: var(--text-secondary); cursor: pointer;
+}
+.fmt-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+/* ── card input area ── */
+.card-input-row { display: flex; gap: 6px; }
+.card-input-row input { flex: 1; }
+
+.tag-area { display: flex; flex-wrap: wrap; gap: 4px; min-height: 28px; margin-bottom: 6px; }
+.tag {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--bg); border: 0.5px solid var(--border-secondary);
+  border-radius: 999px; padding: 2px 6px 2px 9px; font-size: 11px; color: var(--text);
+}
+.tag button { background: none; border: none; padding: 0; color: var(--text-secondary); display: flex; align-items: center; }
+
+.empty-hint { font-size: 11px; color: var(--text-secondary); align-self: center; }
+.clear-link { font-size: 11px; color: var(--text-secondary); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+
+.deck-loaded {
+  display: flex; align-items: center; gap: 5px; font-size: 11px;
+  color: #085041; background: #E1F5EE; border-radius: var(--radius-md); padding: 5px 8px; margin-top: 5px;
+}
+
+/* ── feed entries ── */
+.feed-empty {
+  text-align: center; padding: 3rem 1rem;
+  color: var(--text-secondary); font-size: 13px;
+}
+
+.feed-entry {
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.entry-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--border);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.entry-header-left { display: flex; align-items: center; gap: 8px; }
+
+.entry-seq {
+  font-size: 11px; font-weight: 500;
+  background: var(--bg); border: 0.5px solid var(--border-secondary);
+  border-radius: var(--radius-md); padding: 2px 7px;
+  color: var(--text-secondary);
+}
+
+.entry-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.entry-strategy { font-size: 11px; color: var(--text-secondary); }
+
+.entry-right { display: flex; align-items: center; gap: 8px; }
+
+.conf-pill {
+  font-size: 11px; font-weight: 500; padding: 2px 8px;
+  border-radius: 999px;
+}
+.conf-high { background: #E1F5EE; color: #085041; }
+.conf-mid  { background: #EEEDFE; color: #3C3489; }
+.conf-low  { background: #F1EFE8; color: #444441; }
+
+.entry-chevron { font-size: 14px; color: var(--text-secondary); transition: transform 0.2s; }
+.entry-chevron.open { transform: rotate(180deg); }
+
+.entry-new-tag {
+  font-size: 10px; background: #E1F5EE; color: #085041;
+  border-radius: 999px; padding: 1px 7px; font-weight: 500;
+}
+
+.entry-body { padding: 12px 14px; display: none; }
+.entry-body.open { display: block; }
+
+.entry-card-added {
+  font-size: 11px; color: var(--text-secondary);
+  margin-bottom: 8px; display: flex; align-items: center; gap: 5px;
+}
+
+.entry-card-added .added-card {
+  background: var(--bg-secondary); border: 0.5px solid var(--border);
+  border-radius: var(--radius-md); padding: 1px 7px;
+  font-size: 11px; color: var(--text);
+}
+
+.conf-bar-wrap { margin-bottom: 10px; }
+.conf-bar { height: 4px; background: var(--bg-secondary); border-radius: 2px; overflow: hidden; margin-bottom: 3px; }
+.conf-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+
+.badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-md); font-weight: 500; }
+.badge-teal   { background: #E1F5EE; color: #085041; }
+.badge-purple { background: #EEEDFE; color: #3C3489; }
+.badge-amber  { background: #FAEEDA; color: #633806; }
+.badge-red    { background: #FCEBEB; color: #791F1F; }
+.badge-blue   { background: #E6F1FB; color: #0C447C; }
+.badge-gray   { background: #F1EFE8; color: #444441; }
+.badge-green  { background: #EAF3DE; color: #27500A; }
+
+.entry-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
+.entry-counters { font-size: 12px; color: var(--text-secondary); }
+.entry-counters strong { color: var(--text); font-weight: 500; }
+
+.others-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.other-pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: var(--bg-secondary); border: 0.5px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.advice-block { margin-top: 10px; border-top: 0.5px solid var(--border); padding-top: 10px; }
+.advice-tip {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+  padding: 6px 10px; background: var(--bg-secondary);
+  border-radius: var(--radius-md); margin-bottom: 5px;
+}
+.advice-tip strong { color: var(--text); font-weight: 500; }
+
+/* ── confidence timeline in sidebar ── */
+.timeline { display: flex; flex-direction: column; gap: 4px; }
+.tl-row { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.tl-seq { min-width: 20px; color: var(--text-secondary); font-size: 10px; }
+.tl-bar-bg { flex: 1; background: var(--bg-tertiary); border-radius: 2px; height: 6px; overflow: hidden; }
+.tl-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.tl-pct { min-width: 28px; color: var(--text-secondary); text-align: right; }
+.tl-name { min-width: 80px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.method-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; padding: 2px 6px; border-radius: var(--radius-md); margin-bottom: 8px;
+}
+.method-pattern { background: #E1F5EE; color: #085041; }
+.method-ai      { background: #EEEDFE; color: #3C3489; }
+
+.analyzing-spinner {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-secondary); padding: 8px 0;
+}
+
+.dot-anim::after { content: ''; animation: dots 1.2s steps(4,end) infinite; }
+@keyframes dots { 0%,20%{content:'.'} 40%{content:'..'} 60%{content:'...'} 80%,100%{content:''} }
+
+.api-row { display: flex; flex-direction: column; gap: 4px; }
+.api-row label { font-size: 11px; color: var(--text-secondary); }
+.api-hint { font-size: 10px; color: var(--text-secondary); }
+.api-hint a { color: var(--accent-advice); }
+
+.clear-feed-btn {
+  width: 100%; justify-content: center; font-size: 11px;
+  color: var(--text-secondary); background: none; border-color: var(--border);
+}
+
+.new-game-btn {
+  width: 100%; justify-content: center; font-size: 12px; font-weight: 500;
+  background: var(--text); color: var(--bg); border-color: var(--text);
+}
+.new-game-btn:hover { opacity: 0.88; background: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-title"><div class="dot"></div> MTG Archetype Detector</div>
+  <div class="topbar-sub">Live match feed</div>
+</div>
+
+<div class="app">
+
+  <!-- ── SIDEBAR ── -->
+  <div class="sidebar">
+
+    <div class="api-row">
+      <label><i class="ti ti-key" style="font-size:13px;vertical-align:-2px;margin-right:3px"></i> Anthropic API key</label>
+      <input type="password" id="api-key" placeholder="sk-ant-..." />
+      <span class="api-hint">For AI fallback + advice. <a href="https://console.anthropic.com" target="_blank">Get one here</a>. Stays in browser only.</span>
+    </div>
+
+    <div>
+      <div class="section-label" style="margin-bottom:5px;">Format</div>
+      <div class="format-row" id="format-row"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><i class="ti ti-cards"></i> My deck</div>
+      <textarea id="my-deck-input" placeholder="Paste Arena export:
+
+4 Lightning Bolt
+4 Goblin Guide
+...
+
+(Arena → Share → Copy Decklist)"></textarea>
+      <button class="parse-btn" onclick="parseDeck()"><i class="ti ti-check"></i> Load deck</button>
+      <div id="deck-status"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><i class="ti ti-eye"></i> Opponent cards seen</div>
+      <div class="tag-area" id="tags"><span class="empty-hint">Type a card and press Enter</span></div>
+      <div class="card-input-row">
+        <input type="text" id="card-input" placeholder="Card name..." onkeydown="if(event.key==='Enter')addCard()" />
+        <button onclick="addCard()" style="padding:0 12px;"><i class="ti ti-plus"></i></button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:5px;">
+        <button class="clear-link" onclick="clearAll()">Clear all cards</button>
+      </div>
+    </div>
+
+    <div id="timeline-panel" style="display:none;">
+      <div class="section-label" style="margin-bottom:6px;">Confidence over time</div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+
+    <div id="game-state-panel" style="display:none;"></div>
+
+    <div id="watcher-status" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
+      <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Checking for Arena watcher...</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto;">
+      <button class="new-game-btn" onclick="newGame();resetWatcher()"><i class="ti ti-refresh"></i> New game</button>
+      <button class="clear-feed-btn" onclick="clearFeed()"><i class="ti ti-trash"></i> Clear feed</button>
+    </div>
+
+  </div>
+
+  <!-- ── FEED ── -->
+  <div class="feed" id="feed">
+    <div class="feed-empty" id="feed-empty">
+      <i class="ti ti-cards" style="font-size:32px;display:block;margin-bottom:8px;color:var(--text-secondary)"></i>
+      Add opponent cards to start reading their deck
+    </div>
+  </div>
+
+</div>
+
+<script>
+const FORMATS = ["All","Modern","Legacy","Pioneer","Historic","Standard","Commander"];
+let selectedFormat = "All";
+let opponentCards = [];
+let myDeck = { cards: [] };
+let feedEntries = [];
+let analyzing = false;
+let analysisQueue = false;
+
+const ALL_ARCHETYPES = [
+  { name:"Burn", formats:["Modern","Legacy","Historic","Standard"], colors:["Red"], strategy:"Aggro", cards:["lightning bolt","goblin guide","eidolon of the great revel","lava spike","rift bolt","skullcrack","shard volley","lightning helix","boros charm","searing blaze","monastery swiftspear","sunbaked canyon","sacred foundry","light up the stage","atarka's command","bump in the night","vexing devil","ramunap ruins","kumano","play with fire","phoenix chick","strangle"], desc:"Races to 20 damage with cheap direct damage and aggressive 1-drops before the opponent can stabilize.", counters:"Lifegain, Leyline of Sanctity, Dragon's Claw, Weather the Storm." },
+  { name:"Amulet Titan", formats:["Modern"], colors:["Green","Blue","Red"], strategy:"Combo / Ramp", cards:["amulet of vigor","primeval titan","summoner's pact","tolaria west","simic growth chamber","boros garrison","field of the dead","slayers' stronghold","dryad of the ilysian grove","azusa lost but seeking","explore","ancient stirrings","once upon a time","arboreal grazer","walking ballista","cavern of souls"], desc:"Uses Amulet of Vigor with bounce lands to generate massive mana, then deploys Primeval Titan as a game-ending engine.", counters:"Blood Moon, Alpine Moon, Damping Sphere, Surgical Extraction on Primeval Titan." },
+  { name:"Murktide Regent", formats:["Modern"], colors:["Blue","Red"], strategy:"Tempo", cards:["murktide regent","dragon's rage channeler","expressive iteration","mishra's bauble","lightning bolt","counterspell","consider","spell pierce","unholy heat","scalding tarn","steam vents","fiery islet","spirebluff canal","force of negation","archmage's charm"], desc:"A tempo deck using cantrips and disruption to fuel a massive Murktide Regent, backed by burn and counterspells.", counters:"Chalice of the Void on 1, graveyard hate, Leyline of Sanctity." },
+  { name:"Hammer Time", formats:["Modern"], colors:["White","Blue"], strategy:"Aggro / Combo", cards:["colossus hammer","sigarda's aid","puresteel paladin","ornithopter","steelshaper's gift","esper sentinel","stoneforge mystic","urza's saga","inkmoth nexus","springleaf drum","paradise mantle","shadowspear","luxior giada's gift"], desc:"Attaches Colossus Hammer to an evasive creature for a potential turn-2 kill, bypassing equip costs via Sigarda's Aid or Puresteel Paladin.", counters:"Stony Silence, Force of Vigor, Hurkyl's Recall, Void Mirror." },
+  { name:"Rhinos / Crashcade", formats:["Modern"], colors:["Green","Red","White","Blue"], strategy:"Combo", cards:["shardless agent","violent outburst","crashing footfalls","subtlety","brazen borrower","force of negation","force of vigor","ardent plea","demonic dread","bloodbraid elf","living end","bonecrusher giant","the one ring"], desc:"Cascades into Crashing Footfalls to deploy two free 4/4 Rhinos, protected by Force of Negation and Subtlety.", counters:"Chalice on 0, Void Mirror, countermagic." },
+  { name:"Tron", formats:["Modern"], colors:["Green","Colorless"], strategy:"Ramp", cards:["urza's tower","urza's power plant","urza's mine","karn liberated","ugin the spirit dragon","wurmcoil engine","oblivion stone","chromatic sphere","chromatic star","expedition map","ancient stirrings","sylvan scrying","emrakul the aeons torn","world breaker","ulamog the ceaseless hunger","relic of progenitus"], desc:"Assembles the Urza trifecta for 7+ mana on turn 3, deploying Karn or Wurmcoil Engine.", counters:"Blood Moon, Alpine Moon, Spreading Seas, Ghost Quarter." },
+  { name:"Living End", formats:["Modern"], colors:["Black","Green","Red"], strategy:"Combo", cards:["living end","violent outburst","ardent plea","street wraith","architects of will","deadshot minotaur","curator of mysteries","faerie macabre","desert cerodon","grief","solitude","brazen borrower","force of negation"], desc:"Cycles large creatures into the graveyard, then cascades into Living End to sweep the board while reanimating yours.", counters:"Chalice on 0, Leyline of the Void, Rest in Peace, Void Mirror." },
+  { name:"Death's Shadow", formats:["Modern"], colors:["Black","Red","Green"], strategy:"Aggro / Tempo", cards:["death's shadow","ragavan nimble pilferer","dragon's rage channeler","street wraith","mishra's bauble","thoughtseize","inquisition of kozilek","fatal push","unholy heat","temur battle rage","stubborn denial","blood crypt","bloodstained mire","verdant catacombs"], desc:"Deliberately reduces its own life total to deploy a massive Death's Shadow alongside hand disruption.", counters:"Lifegain, Path to Exile, bounce effects." },
+  { name:"Yawgmoth Combo", formats:["Modern"], colors:["Black","Green"], strategy:"Combo", cards:["yawgmoth thran physician","young wolf","strangleroot geist","geralf's messenger","necroskitter","grist the hunger tide","chord of calling","eldritch evolution","collected company","golgari charm","nurturing peatland","overgrown tomb"], desc:"Loops Yawgmoth with undying creatures to draw infinitely and drain the opponent to zero.", counters:"Grafdigger's Cage, Yixlid Jailer, Solitude, Rest in Peace." },
+  { name:"Storm", formats:["Modern","Legacy"], colors:["Blue","Red"], strategy:"Combo", cards:["gifts ungiven","past in flames","grapeshot","empty the warrens","goblin electromancer","baral chief of compliance","serum visions","manamorphose","pyretic ritual","desperate ritual","strike it rich","steam vents","ponder","preordain","mystical tutor","burning wish"], desc:"Chains rituals and cantrips to build storm count for a lethal Grapeshot or Empty the Warrens burst.", counters:"Chalice on 1, Rule of Law, Ethersworn Canonist, Flusterstorm, Damping Sphere." },
+  { name:"Humans", formats:["Modern"], colors:["White","Blue","Red","Green","Black"], strategy:"Aggro", cards:["thalia's lieutenant","champion of the parish","mantis rider","reflector mage","meddling mage","kitesail freebooter","militia bugler","thalia guardian of thraben","mayor of avabruck","imperial recruiter","phantasmal image","aether vial","ancient ziggurat","cavern of souls","unclaimed territory"], desc:"Five-color Human tribal using Aether Vial and Cavern of Souls to dodge interaction while taxing opponents.", counters:"Engineered Explosives, Supreme Verdict, Anger of the Gods." },
+  { name:"UW Control", formats:["Modern","Pioneer","Legacy"], colors:["Blue","White"], strategy:"Control", cards:["counterspell","supreme verdict","wrath of god","teferi hero of dominaria","jace the mind sculptor","force of negation","archmage's charm","solitude","leyline binding","prismatic ending","hallowed fountain","celestial colonnade","flooded strand","snapcaster mage","opt","consider","cryptic command","azcanta the sunken ruin"], desc:"Reactive control using counterspells and sweepers, winning through card advantage and planeswalkers.", counters:"Planeswalker aggression, Thalia, hand disruption, Blood Moon." },
+  { name:"Doomsday", formats:["Legacy"], colors:["Blue","Black"], strategy:"Combo", cards:["doomsday","thassa's oracle","dark ritual","lotus petal","force of will","force of negation","ponder","brainstorm","preordain","underground sea","polluted delta","daze","flusterstorm","duress","street wraith"], desc:"Casts Doomsday to build a 5-card library pile, then wins through Thassa's Oracle with an empty deck.", counters:"Surgical Extraction, Nihil Spellbomb, Hushbringer." },
+  { name:"Sneak & Show", formats:["Legacy"], colors:["Red","Blue"], strategy:"Combo", cards:["show and tell","sneak attack","emrakul the aeons torn","griselbrand","omniscience","force of will","ponder","brainstorm","lotus petal","ancient tomb","city of traitors","volcanic island","scalding tarn"], desc:"Puts Emrakul or Griselbrand into play via Show and Tell or Sneak Attack as early as turn 1.", counters:"Karakas, Containment Priest, Leyline of the Void, Phyrexian Revoker." },
+  { name:"Delver (Legacy)", formats:["Legacy"], colors:["Blue","Red"], strategy:"Tempo", cards:["delver of secrets","murktide regent","dragon's rage channeler","ponder","brainstorm","preordain","daze","force of will","lightning bolt","unholy heat","wasteland","volcanic island","scalding tarn","expressive iteration","pyroblast"], desc:"Pairs cheap threats with free interaction; Wasteland and Daze lock opponents out while Delver closes the game.", counters:"Basic lands, creature-light builds, Chalice on 1." },
+  { name:"Lands", formats:["Legacy"], colors:["Green","Red"], strategy:"Control / Combo", cards:["dark depths","thespian's stage","marit lage","life from the loam","exploration","crop rotation","mox diamond","gamble","rishadan port","wasteland","grove of the burnwillows","punishing fire","karakas","field of the dead","ghost quarter"], desc:"Dark Depths + Thespian's Stage creates a 20/20 Marit Lage; Wasteland and Rishadan Port lock the opponent out.", counters:"Bojuka Bog, Surgical Extraction on Dark Depths, Karakas." },
+  { name:"ANT / TES", formats:["Legacy"], colors:["Blue","Black","Red"], strategy:"Combo", cards:["ad nauseam","tendrils of agony","dark ritual","cabal ritual","lion's eye diamond","lotus petal","infernal tutor","brainstorm","ponder","gitaxian probe","duress","thoughtseize","polluted delta","underground sea","volcanic island","echo of eons"], desc:"Chains rituals and draw via Ad Nauseam to reach lethal Tendrils storm count, often on turn 1 or 2.", counters:"Flusterstorm, Mindbreak Trap, Leyline of Sanctity, Chalice on 0." },
+  { name:"Death & Taxes", formats:["Legacy","Pioneer"], colors:["White"], strategy:"Aggro / Control", cards:["thalia guardian of thraben","flickerwisp","mother of runes","stoneforge mystic","batterskull","aether vial","rishadan port","wasteland","karakas","swords to plowshares","recruiter of the guard","sanctum prelate","palace jailer","leonin arbiter","ghost quarter"], desc:"White weenie prison taxing and disrupting with Thalia, Rishadan Port, and Wasteland.", counters:"Basic lands, fast combo, sweepers, artifact hate." },
+  { name:"Reanimator", formats:["Legacy"], colors:["Black","Blue"], strategy:"Combo", cards:["animate dead","exhume","entomb","reanimate","griselbrand","archon of cruelty","chancellor of the annex","iona shield of emeria","dark ritual","lotus petal","force of will","thoughtseize","duress","unmask","polluted delta","underground sea"], desc:"Entombs a massive creature then reanimates it immediately for an early game-winning threat.", counters:"Leyline of the Void, Rest in Peace, Faerie Macabre, Karakas." },
+  { name:"Rakdos Midrange", formats:["Pioneer","Historic"], colors:["Black","Red"], strategy:"Midrange", cards:["thoughtseize","fatal push","bloodtithe harvester","fable of the mirror-breaker","sheoldred the apocalypse","graveyard trespasser","sorin imperious bloodlord","kalitas traitor of ghet","vein ripper","reckoner bankbuster","kroxa titan of death's hunger","dreadbore","blood crypt","blackcleave cliffs","haunted ridge"], desc:"Value midrange combining hand disruption, efficient removal, and powerful threats in Sheoldred and Fable.", counters:"Leyline of Sanctity, fast aggro, enchantment removal for Fable." },
+  { name:"Lotus Field Combo", formats:["Pioneer","Historic"], colors:["Green","Blue"], strategy:"Combo", cards:["lotus field","hidden strings","pore over the pages","thassa's oracle","thought distortion","strategic planning","shimmer of possibility","sylvan scrying","bala ged recovery","arboreal grazer","explore","wilderness reclamation"], desc:"Untaps Lotus Field repeatedly to build infinite mana, winning through Thassa's Oracle.", counters:"Field of Ruin, Damping Sphere, Alpine Moon, Thoughtseize." },
+  { name:"Mono-Green Devotion", formats:["Pioneer","Historic"], colors:["Green"], strategy:"Ramp / Combo", cards:["elvish mystic","llanowar elves","old-growth troll","nykthos shrine to nyx","cavalier of thorns","storm the festival","kiora behemoth beckoner","voracious hydra","karn the great creator","nissa who shakes the world","ulamog the ceaseless hunger","polukranos world eater"], desc:"Generates enormous mana through Nykthos and mana dorks, deploying Ulamog or locking with Karn.", counters:"Alpine Moon, removal for mana dorks, sweepers, Damping Sphere." },
+  { name:"Izzet Phoenix", formats:["Pioneer","Historic"], colors:["Blue","Red"], strategy:"Aggro / Combo", cards:["arclight phoenix","treasure cruise","temporal trespass","strategic planning","chart a course","consider","pieces of the puzzle","ledger shredder","crackling drake","fiery temper","riverglide pathway","spirebluff canal","steam vents","shivan reef"], desc:"Fills the graveyard with cheap spells to recur Arclight Phoenix, backed by Treasure Cruise for explosive card advantage.", counters:"Graveyard hate (Rest in Peace, Unlicensed Hearse), Damping Sphere." },
+  { name:"Abzan Greasefang", formats:["Pioneer","Historic"], colors:["White","Black","Green"], strategy:"Combo", cards:["greasefang okiba boss","parhelion ii","vessel of nascency","raffine's informant","falsified documents","fable of the mirror-breaker","thoughtseize","fatal push","concealed courtyard","overgrown tomb","godless shrine"], desc:"Discards Parhelion II then returns it attacking on turn 3 with Greasefang for a massive lifelink flying assault.", counters:"Graveyard hate, Fatal Push on Greasefang, artifact removal." },
+  { name:"Auras (Bogles)", formats:["Historic"], colors:["White","Green","Blue"], strategy:"Aggro / Combo", cards:["sram senior edificer","kor spiritdancer","setessan champion","all that glitters","ethereal armor","curious obsession","cartouche of solidarity","sentinel's eyes","spider umbra","rancor","hyena umbra","gladecover scout","slippery bogle","hallowed fountain","breeding pool","hinterland harbor","glacial fortress"], desc:"Stacks auras onto a hexproof creature to create an overwhelming threat that bypasses targeted removal.", counters:"Sweepers, Detention Sphere, Shadowspear." },
+  { name:"Jund Food", formats:["Historic"], colors:["Black","Red","Green"], strategy:"Midrange / Combo", cards:["witch's oven","cauldron familiar","trail of crumbs","mayhem devil","midnight reaper","woe strider","korvold fae-cursed king","claim the firstborn","ravenous squirrel","gilded goose","oko thief of crowns","once upon a time","overgrown tomb","blood crypt","stomping ground","blooming marsh"], desc:"Loops Cauldron Familiar and Witch's Oven for repeated drain via Mayhem Devil, generating value through Trail of Crumbs and Korvold.", counters:"Grafdigger's Cage, Leyline of the Void, exile-based removal." },
+  { name:"Goblins", formats:["Historic"], colors:["Red"], strategy:"Aggro / Combo", cards:["goblin chieftain","goblin warchief","muxus goblin grandee","krenko mob boss","goblin matron","skirk prospector","goblin ringleader","conspicuous snoop","munitions expert","pashalik mons","goblin trashmaster","cavern of souls","unclaimed territory","transmogrify"], desc:"Accelerates into Muxus to flood the board with Goblins instantly, or uses Krenko to exponentially multiply tokens.", counters:"Wrath of God, Anger of the Gods, Grafdigger's Cage, non-creature removal." },
+  { name:"Gruul Shamans", formats:["Historic"], colors:["Red","Green"], strategy:"Aggro / Combo", cards:["bellowsbreath ogre","goblin anarchomancer","harmonic prodigy","rage forger","burning-tree emissary","seasoned pyromancer","collected company","chord of calling","stomping ground","rootbound crag","ramunap ruins","forest","mountain"], desc:"Tribal Shaman synergy where Harmonic Prodigy doubles all Shaman triggers — Bellowsbreath Ogre and Rage Forger become lethal exponentially fast.", counters:"Sweepers, Grafdigger's Cage (for Company), non-creature removal." },
+  { name:"Sultai Midrange", formats:["Historic"], colors:["Blue","Black","Green"], strategy:"Midrange", cards:["thoughtseize","fatal push","tarmogoyf","oko thief of crowns","uro titan of nature's wrath","hydroid krasis","growth spiral","nissa who shakes the world","once upon a time","misty rainforest","verdant catacombs","breeding pool","watery grave","overgrown tomb","assassin's trophy","abrupt decay"], desc:"Elite threats like Uro and Oko paired with premium disruption, leveraging Historic's expanded card pool.", counters:"Hand disruption, exile-based removal, Rest in Peace, enchantment hate for Nissa." },
+  { name:"Jeskai Control", formats:["Historic"], colors:["White","Blue","Red"], strategy:"Control", cards:["teferi time raveler","teferi hero of dominaria","narset parter of veils","supreme verdict","anger of the gods","lightning helix","counterspell","memory deluge","rest in peace","magma opus","shark typhoon","torrential gearhulk","steam vents","sacred foundry","hallowed fountain","clifftop retreat","sulfur falls"], desc:"Teferi locks down opponents' instants while sweepers clear boards; card advantage engines grind to victory.", counters:"Planeswalker aggression, Duress, Thoughtseize, fast combo." },
+  { name:"Five-Color Niv-Mizzet", formats:["Historic"], colors:["White","Blue","Black","Red","Green"], strategy:"Midrange / Control", cards:["niv-mizzet reborn","bring to light","binding the old gods","teferi time raveler","thoughtseize","veil of summer","collected company","growth spiral","hydroid krasis","assassin's trophy","zagoth triome","indatha triome","raugrin triome","ketria triome","savai triome","mana confluence"], desc:"Niv-Mizzet Reborn draws a hand of gold cards; Bring to Light finds any two-color answer in the pile.", counters:"Graveyard hate, counterspells, exile removal on Niv-Mizzet." },
+  { name:"Domain Ramp", formats:["Standard"], colors:["White","Blue","Black","Red","Green"], strategy:"Ramp / Control", cards:["atraxa grand unifier","sunfall","wrenn and realmbreaker","lay down arms","temporary lockdown","invasion of zendikar","zur eternal schemer","the wandering emperor","tainted indulgence","triome"], desc:"Assembles all five land types for Domain synergies, then wins with Atraxa or Sunfall.", counters:"Aggro before Atraxa, Negate, Duress on key spells." },
+  { name:"Esper Midrange", formats:["Standard"], colors:["White","Blue","Black"], strategy:"Midrange", cards:["raffine scheming seer","sheoldred the apocalypse","reckoner bankbuster","wedding announcement","sunfall","make disappear","cut down","wandering emperor","fading hope","atraxa grand unifier","raffine's tower","darkslick shores","godless shrine","hallowed fountain"], desc:"Raffine filters draws and pumps creatures; Sheoldred drains life; premium interaction controls the board.", counters:"Go wide, enchantment removal for Wedding Announcement, counterspells." },
+  { name:"Mono-Red Aggro", formats:["Standard","Pioneer","Historic"], colors:["Red"], strategy:"Aggro", cards:["monastery swiftspear","kumano faces kakkazan","voldaren epicure","feldon reforged","bloodthirsty adversary","play with fire","strangle","phoenix chick","warboss goblin","shivan devastator","squee dubious monarch","reckless impulse","mishra's foundry","ramunap ruins","sunscorched desert"], desc:"Blazing-fast red aggro focused on 20 damage before the opponent stabilizes.", counters:"Life gain, blockers, sweepers, Leyline of Sanctity." },
+  { name:"Thrasios & Tymna (cEDH)", formats:["Commander"], colors:["White","Blue","Black","Green"], strategy:"Combo", cards:["thrasios triton hero","tymna the weaver","demonic consultation","thassa's oracle","ad nauseam","necropotence","force of will","mana drain","mox diamond","chrome mox","mana crypt","sol ring","birds of paradise","noble hierarch","mystical tutor","vampiric tutor","rhystic study","smothering tithe"], desc:"Competitive EDH combo pairing Thrasios's mana sink with Tymna's card draw, winning through Consultation+Oracle or Ad Nauseam.", counters:"Stax (Rule of Law, Sphere of Resistance), Cursed Totem, fast aggro." },
+];
+
+/* ── helpers ── */
+function getArchetypes() {
+  return selectedFormat === "All" ? ALL_ARCHETYPES : ALL_ARCHETYPES.filter(a => a.formats.includes(selectedFormat));
+}
+
+function scoreArchetype(a, cardList) {
+  const lc = cardList.map(c => c.toLowerCase().trim());
+  let score = 0, matches = [];
+  for (const card of lc) {
+    for (const ac of a.cards) {
+      if (ac.includes(card) || card.includes(ac.split(' ')[0])) { score++; if (!matches.includes(ac)) matches.push(ac); break; }
+    }
+  }
+  return { score, matches, confidence: Math.min(100, Math.round((score / Math.max(lc.length,1)) * 100)) };
+}
+
+function badgeFor(c) {
+  return c==='Red'?'badge-red':c==='Blue'?'badge-blue':c==='Green'?'badge-teal':c==='White'?'badge-gray':c==='Black'?'badge-gray':'badge-amber';
+}
+
+function confClass(pct) { return pct >= 65 ? 'conf-high' : pct >= 35 ? 'conf-mid' : 'conf-low'; }
+function confColor(pct) { return pct >= 65 ? '#1D9E75' : pct >= 35 ? '#7F77DD' : '#888780'; }
+
+function getApiKey() { return (document.getElementById('api-key').value || '').trim(); }
+
+async function callClaude(system, userMsg) {
+  const key = getApiKey();
+  if (!key) return null;
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system, messages: [{role:"user",content:userMsg}] })
+  });
+  const data = await resp.json();
+  const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+  return JSON.parse(text.replace(/```json|```/g,'').trim());
+}
+
+/* ── format selector ── */
+function renderFormats() {
+  document.getElementById('format-row').innerHTML = FORMATS.map(f =>
+    `<button class="fmt-btn${f===selectedFormat?' active':''}" onclick="selectFormat('${f}')">${f}</button>`
+  ).join('');
+}
+function selectFormat(f) { selectedFormat = f; renderFormats(); }
+
+/* ── deck loading ── */
+function parseDeck() {
+  const raw = document.getElementById('my-deck-input').value.trim();
+  const cards = [];
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('//') || t.toLowerCase()==='deck' || t.toLowerCase()==='sideboard') continue;
+    const m = t.match(/^(\d+)\s+(.+?)(\s+\(.*)?$/);
+    if (m) { const qty=parseInt(m[1]); const name=m[2].trim(); for(let i=0;i<qty;i++) cards.push(name); }
+  }
+  myDeck = { cards };
+  const el = document.getElementById('deck-status');
+  el.innerHTML = cards.length
+    ? `<div class="deck-loaded"><i class="ti ti-check" style="font-size:13px"></i> ${cards.length} cards (${[...new Set(cards)].length} unique)</div>`
+    : `<div style="font-size:11px;color:var(--text-secondary);margin-top:5px;">Couldn't parse — use Arena export format.</div>`;
+}
+
+/* ── opponent cards ── */
+function addCard() {
+  const input = document.getElementById('card-input');
+  const val = input.value.trim();
+  if (!val) return;
+  opponentCards.push(val);
+  input.value = '';
+  renderTags();
+  triggerAnalysis(val);
+}
+
+
+
+function removeCard(i) { opponentCards.splice(i, 1); renderTags(); }
+
+function renderTags() {
+  const el = document.getElementById('tags');
+  el.innerHTML = opponentCards.length
+    ? opponentCards.map((c,i) => `<div class="tag">${c}<button onclick="removeCard(${i})"><i class="ti ti-x" style="font-size:12px"></i></button></div>`).join('')
+    : '<span class="empty-hint">Type a card and press Enter</span>';
+}
+
+/* ── analysis engine ── */
+async function triggerAnalysis(newCard) {
+  if (analyzing) { analysisQueue = newCard; return; }
+  analyzing = true;
+  await runAnalysis(newCard);
+  analyzing = false;
+  if (analysisQueue) {
+    const queued = analysisQueue;
+    analysisQueue = false;
+    await triggerAnalysis(queued);
+  }
+}
+
+async function runAnalysis(newCard) {
+  const pool = getArchetypes();
+  const scored = pool
+    .map(a => ({...a, ...scoreArchetype(a, opponentCards)}))
+    .filter(a => a.score > 0)
+    .sort((a,b) => b.score - a.score);
+
+  let archetype = null;
+  let usedAI = false;
+
+  if (scored.length && scored[0].confidence >= 20) {
+    archetype = scored[0];
+    archetype.others = scored.slice(1,4);
+  } else {
+    const key = getApiKey();
+    if (key && opponentCards.length >= 2) {
+      const fmtCtx = selectedFormat==='All' ? 'any MTG format' : selectedFormat;
+      try {
+        archetype = await callClaude(
+          `You are an expert MTG analyst. Identify the archetype from opponent cards in ${fmtCtx}. Respond ONLY with valid JSON (no markdown): {name, format, strategy, colors (array), confidence (0-100), desc (2 sentences), counters, matches (array)}`,
+          `Opponent cards: ${opponentCards.join(', ')}`
+        );
+        usedAI = true;
+      } catch(e) {}
+    }
+  }
+
+  if (!archetype) return;
+
+  // fetch advice if deck loaded + key present
+  let advice = null;
+  if (myDeck.cards.length && getApiKey()) {
+    const fmtCtx = selectedFormat==='All' ? 'any MTG format' : selectedFormat;
+    try {
+      advice = await callClaude(
+        `You are an expert MTG gameplay advisor. Provide tailored in-game advice. Respond ONLY with valid JSON (no markdown): {tips:[{title,advice}], key_threats:[string], win_condition:string}. 3 concise tips referencing specific cards in the player's deck.`,
+        `Format: ${fmtCtx}. Opponent: ${archetype.name} (${archetype.strategy}). Cards seen: ${opponentCards.join(', ')}. My deck: ${[...new Set(myDeck.cards)].join(', ')}`
+      );
+    } catch(e) {}
+  }
+
+  addFeedEntry({ archetype, usedAI, newCard, advice, cardCount: opponentCards.length });
+}
+
+/* ── feed rendering ── */
+function addFeedEntry({ archetype, usedAI, newCard, advice, cardCount }) {
+  const seq = feedEntries.length + 1;
+  const conf = Math.round(archetype.confidence || 0);
+  const colors = archetype.colors || [];
+  const others = archetype.others || [];
+
+  const othersHTML = others.length
+    ? `<div class="others-row">${others.map(o=>`<span class="other-pill">${o.name} (${o.score})</span>`).join('')}</div>`
+    : '';
+
+  const adviceHTML = advice ? `
+    <div class="advice-block">
+      <div class="section-label" style="margin-bottom:5px;">Your game plan</div>
+      <div class="advice-tip" style="margin-bottom:6px;">${advice.win_condition||''}</div>
+      ${(advice.tips||[]).map(t=>`<div class="advice-tip"><strong>${t.title}:</strong> ${t.advice}</div>`).join('')}
+    </div>` : '';
+
+  const entryId = `entry-${seq}`;
+  const bodyId = `body-${seq}`;
+
+  const html = `
+    <div class="feed-entry" id="${entryId}">
+      <div class="entry-header" onclick="toggleEntry('${bodyId}', this)">
+        <div class="entry-header-left">
+          <span class="entry-seq">#${seq}</span>
+          <div>
+            <div class="entry-name">${archetype.name} <span class="entry-new-tag">+${newCard}</span></div>
+            <div class="entry-strategy">${archetype.formats ? archetype.formats.join(' / ') : archetype.format||''} · ${archetype.strategy}</div>
+          </div>
+        </div>
+        <div class="entry-right">
+          <span class="conf-pill ${confClass(conf)}">${conf}%</span>
+          <i class="ti ti-chevron-down entry-chevron open"></i>
+        </div>
+      </div>
+      <div class="entry-body open" id="${bodyId}">
+        <div class="method-badge ${usedAI?'method-ai':'method-pattern'}">
+          <i class="ti ti-${usedAI?'sparkles':'database'}" style="font-size:10px"></i>
+          ${usedAI ? 'Claude AI' : 'Pattern match'} · ${cardCount} card${cardCount!==1?'s':''} seen
+        </div>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar"><div class="conf-bar-fill" style="width:${conf}%;background:${confColor(conf)}"></div></div>
+          <div style="font-size:10px;color:var(--text-secondary)">${conf}% confidence</div>
+        </div>
+        <div class="badges">
+          ${colors.map(c=>`<span class="badge ${badgeFor(c)}">${c}</span>`).join('')}
+          ${archetype.matches ? `<span class="badge badge-teal">${archetype.matches.length} matched</span>` : ''}
+        </div>
+        <div class="entry-desc">${archetype.desc||archetype.description||''}</div>
+        <div class="entry-counters"><strong>Counter:</strong> ${archetype.counters||''}</div>
+        ${othersHTML}
+        ${adviceHTML}
+      </div>
+    </div>`;
+
+  // collapse all previous entries
+  document.querySelectorAll('.entry-body.open').forEach(b => {
+    b.classList.remove('open');
+    const header = b.previousElementSibling;
+    if (header) { const chev = header.querySelector('.entry-chevron'); if(chev) chev.classList.remove('open'); }
+  });
+
+  // remove empty state
+  const empty = document.getElementById('feed-empty');
+  if (empty) empty.remove();
+
+  const feed = document.getElementById('feed');
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  feed.insertBefore(div.firstElementChild, feed.firstChild);
+
+  feedEntries.push({ seq, name: archetype.name, conf });
+  updateTimeline();
+}
+
+function toggleEntry(bodyId, header) {
+  const body = document.getElementById(bodyId);
+  const chev = header.querySelector('.entry-chevron');
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  chev.classList.toggle('open', !isOpen);
+}
+
+function updateTimeline() {
+  const panel = document.getElementById('timeline-panel');
+  const tl = document.getElementById('timeline');
+  if (!feedEntries.length) { panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  tl.innerHTML = [...feedEntries].reverse().map(e => `
+    <div class="tl-row">
+      <span class="tl-seq">#${e.seq}</span>
+      <span class="tl-name">${e.name}</span>
+      <div class="tl-bar-bg"><div class="tl-bar-fill" style="width:${e.conf}%;background:${confColor(e.conf)}"></div></div>
+      <span class="tl-pct">${e.conf}%</span>
+    </div>`).join('');
+}
+
+/* ── controls ── */
+function clearAll() { opponentCards = []; renderTags(); }
+function clearFeed() {
+  feedEntries = [];
+  const feed = document.getElementById('feed');
+  feed.innerHTML = '<div class="feed-empty" id="feed-empty"><i class="ti ti-cards" style="font-size:32px;display:block;margin-bottom:8px;color:var(--text-secondary)"></i>Add opponent cards to start reading their deck</div>';
+  updateTimeline();
+}
+function newGame() { clearAll(); clearFeed(); }
+
+renderFormats();
+renderTags();
+
+/* ── Arena watcher polling ─────────────────────────────────────── */
+const WATCHER_URL = "";
+let watcherConnected = false;
+let lastSeenCards = [];
+let lastGameState = {};
+
+function updateWatcherStatus(connected) {
+  const el = document.getElementById('watcher-status');
+  if (!el) return;
+  if (connected && !watcherConnected) {
+    el.innerHTML = '<span style="color:#1D9E75"><i class="ti ti-wifi" style="font-size:13px;vertical-align:-2px"></i> Arena watcher connected</span>';
+  } else if (!connected) {
+    el.innerHTML = '<span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Arena watcher offline — <a href="https://github.com/abaek5/mtg-archetype-detector#setup" target="_blank" style="color:var(--accent-advice)">start watcher.py</a></span>';
+  }
+  watcherConnected = connected;
+}
+
+function renderGameState(s) {
+  const el = document.getElementById('game-state-panel');
+  if (!el) return;
+  if (!s.phase && !s.turn) { el.style.display='none'; return; }
+  el.style.display = 'block';
+
+  const life = (n, cls) => `<span style="font-size:13px;font-weight:500;color:${cls}">${n}</span>`;
+  const myLife  = s.my_life  <= 5 ? '#E24B4A' : s.my_life  <= 10 ? '#BA7517' : '#1D9E75';
+  const oppLife = s.opp_life <= 5 ? '#E24B4A' : s.opp_life <= 10 ? '#BA7517' : '#1D9E75';
+
+  const creature = bf => bf.filter(c => c.types.includes('CardType_Creature'));
+  const cardPill = (c, tapped) => `<div style="font-size:11px;padding:2px 7px;background:var(--bg-secondary);border:0.5px solid var(--border);border-radius:var(--radius-md);margin-bottom:3px;opacity:${tapped?'0.5':'1'}">${c.name}${c.power!=null?` <span style="color:var(--text-secondary)">${c.power}/${c.toughness}</span>`:''}</div>`;
+
+  const myCreatures  = creature(s.my_battlefield  || []);
+  const oppCreatures = creature(s.opp_battlefield || []);
+  const myHand       = s.my_hand || [];
+
+  el.innerHTML = `
+    <div class="section-label" style="margin-bottom:6px;">Live game state</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="font-size:11px;color:var(--text-secondary)">Turn ${s.turn || '—'}</div>
+      <div style="font-size:11px;color:var(--text-secondary);text-align:right">${s.phase || ''}</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+      <div style="font-size:12px;color:var(--text-secondary)">You ${life(s.my_life ?? 20, myLife)}</div>
+      <div style="font-size:12px;color:var(--text-secondary)">Opp ${life(s.opp_life ?? 20, oppLife)}</div>
+    </div>
+    ${oppCreatures.length ? `<div class="section-label" style="margin-bottom:4px;">Their board</div>${oppCreatures.map(c=>cardPill(c,c.tapped)).join('')}` : ''}
+    ${myCreatures.length  ? `<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>${myCreatures.map(c=>cardPill(c,c.tapped)).join('')}` : ''}
+    ${myHand.length ? `<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>${myHand.map(n=>`<div style="font-size:11px;padding:2px 7px;background:#E1F5EE;border-radius:var(--radius-md);color:#085041;margin-bottom:3px;">${n}</div>`).join('')}` : ''}
+  `;
+}
+
+async function pollWatcher() {
+  try {
+    const resp = await fetch(WATCHER_URL + "/state", { signal: AbortSignal.timeout(1500) });
+    if (!resp.ok) throw new Error("bad");
+    const data = await resp.json();
+    updateWatcherStatus(true);
+
+    // Auto-add new opponent cards
+    const newCards = (data.opponent_cards || []).filter(c => !lastSeenCards.includes(c));
+    for (const card of newCards) {
+      if (!opponentCards.includes(card)) {
+        opponentCards.push(card);
+        renderTags();
+        await triggerAnalysis(card);
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+    lastSeenCards = data.opponent_cards || [];
+
+    // Update game state panel
+    renderGameState(data);
+    lastGameState = data;
+  } catch(e) {
+    updateWatcherStatus(false);
+    document.getElementById('game-state-panel') && (document.getElementById('game-state-panel').style.display='none');
+  }
+}
+
+async function resetWatcher() {
+  try { await fetch(WATCHER_URL + "/reset", { signal: AbortSignal.timeout(1500) }); } catch(e) {}
+  lastSeenCards = [];
+  lastGameState = {};
+}
+
+setInterval(pollWatcher, 2000);
+pollWatcher();
+</script>
+</body>
+</html>

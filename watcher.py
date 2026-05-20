@@ -315,6 +315,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200); self._cors(); self.end_headers()
 
     def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            html_path = Path(__file__).parent / "index_local.html"
+            if html_path.exists():
+                body = html_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", len(body))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_response(404); self.end_headers()
+            return
         if self.path == "/state":
             with lock:
                 body = json.dumps({
@@ -369,8 +381,19 @@ if __name__ == "__main__":
     threading.Thread(target=watch_log, daemon=True).start()
 
     try:
-        print(f"API:  http://localhost:5000/state")
-        print(f"      http://localhost:5000/reset\n")
+        print("Open this in Chrome:  http://localhost:5000")
+        print("API: http://localhost:5000/state | /reset\n")
         HTTPServer(("localhost", 5000), Handler).serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
+
+# ── Serve local HTML (added to fix HTTPS/localhost CORS issue) ─────────────────
+import pathlib as _pl
+_HTML_PATH = _pl.Path(__file__).parent / "index_local.html"
+_HTML_CACHE = None
+
+def _get_html():
+    global _HTML_CACHE
+    if _HTML_CACHE is None and _HTML_PATH.exists():
+        _HTML_CACHE = _HTML_PATH.read_bytes()
+    return _HTML_CACHE
