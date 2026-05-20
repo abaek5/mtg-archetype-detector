@@ -707,10 +707,8 @@ function setWatcherUrl() {
 
 // Restore saved URL on load
 (function() {
-  const saved = localStorage.getItem('watcherUrl') || '';
   const input = document.getElementById('watcher-url-input');
-  if (input && saved) { input.value = saved; WATCHER_URL = saved; }
-  else if (!saved) { WATCHER_URL = 'http://127.0.0.1:5000'; }
+  if (input && WATCHER_URL !== 'http://127.0.0.1:5000') input.value = WATCHER_URL;
 })();
 
 renderFormats();
@@ -718,9 +716,7 @@ renderTags();
 
 /* ── Arena watcher polling ─────────────────────────────────────── */
 // Watcher URL — set to your ngrok URL when using Netlify
-// e.g. "https://abc123.ngrok-free.app"
-const SAVED_URL = localStorage.getItem('watcherUrl') || '';
-let WATCHER_URL = SAVED_URL;
+let WATCHER_URL = localStorage.getItem('watcherUrl') || 'http://127.0.0.1:5000';
 let watcherConnected = false;
 let lastSeenCards = [];
 let lastGameState = {};
