@@ -195,33 +195,40 @@ def parse_game_state(msg: dict):
                             state["last_update"] = time.time()
                             print(f"  [STACK] Opponent: {name}")
 
-        # Check annotations for ZoneTransfer CastSpell / PlayLand by opponent
+        # Check annotations for ZoneTransfer CastSpell by opponent
         for ann in gm.get("annotations", []):
             ann_types = ann.get("type", [])
             if "AnnotationType_ZoneTransfer" not in ann_types:
                 continue
             details = {d["key"]: d for d in ann.get("details", [])}
             category = details.get("category", {}).get("valueString", [""])[0]
-            if category not in ("CastSpell", "PlayLand", "Resolve"):
+            if category not in ("CastSpell", "Resolve"):
                 continue
             for iid in ann.get("affectedIds", []):
                 info = state["instance_map"].get(iid, {})
                 if info.get("owner") != 2:
                     continue
-                name = info.get("name")
+                grpid = info.get("grpId")
+                # Try name from instance map first, then re-resolve from grp_map
+                name = info.get("name") or state["grp_map"].get(grpid)
+                ctypes = info.get("cardTypes", [])
+                token  = info.get("token", False)
+
+                print(f"  [DBG ] ZoneTransfer cat={category} iid={iid} owner={info.get('owner')} grp={grpid} name={name} types={ctypes}")
+
                 if not name:
+                    print(f"  [WARN] grpId {grpid} not in card database — add manually if needed")
                     continue
                 if name in SKIP_NAMES:
                     continue
-                ctypes = info.get("cardTypes", [])
                 if "CardType_Land" in ctypes:
                     continue
-                if info.get("token"):
+                if token:
                     continue
                 if name not in state["opponent_cards"]:
                     state["opponent_cards"].append(name)
                     state["last_update"] = time.time()
-                    print(f"  [CAST ] Opponent: {name}  (grp={info.get('grpId')})")
+                    print(f"  [CAST ] Opponent: {name}  (grp={grpid})")
 
         state["last_update"] = time.time()
 
