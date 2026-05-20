@@ -716,7 +716,7 @@ renderTags();
 
 /* ── Arena watcher polling ─────────────────────────────────────── */
 // Watcher URL — set to your ngrok URL when using Netlify
-let WATCHER_URL = localStorage.getItem('watcherUrl') || 'http://127.0.0.1:5000';
+var WATCHER_URL = localStorage.getItem('watcherUrl') || 'http://127.0.0.1:5000';
 let watcherConnected = false;
 let lastSeenCards = [];
 let lastGameState = {};
