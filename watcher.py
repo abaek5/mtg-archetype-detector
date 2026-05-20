@@ -1,9 +1,9 @@
 """
 MTG Arena Watcher — reads Player.log in real time
-Resolves grpId -> card name via Scryfall bulk data
+Resolves grpId -> card name via Scryfall API (per-card fallback)
 Serves full game state at localhost:5000
 """
-import json, os, re, sys, time, threading, urllib.request, gzip
+import json, os, re, sys, time, threading, urllib.request
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -11,91 +11,118 @@ LOG_PATH = Path(os.path.expandvars(
     r"%APPDATA%\..\LocalLow\Wizards of the Coast\MTGA\Player.log"
 ))
 SCRYFALL_BULK = Path(os.path.expandvars(r"%TEMP%\mtga_cards.json"))
-SCRYFALL_URL  = "https://data.scryfall.io/oracle-cards/oracle-cards-20250101100208.json"
 
 # ── Shared state ───────────────────────────────────────────────────────────────
 state = {
-    "opponent_cards": [],       # card names seen played by opponent
-    "my_hand": [],              # my current hand (card names)
-    "my_battlefield": [],       # my creatures/permanents [{name,power,toughness,tapped}]
-    "opp_battlefield": [],      # opponent creatures/permanents
-    "phase": "",                # current phase
+    "opponent_cards": [],
+    "my_hand": [],
+    "my_battlefield": [],
+    "opp_battlefield": [],
+    "phase": "",
     "turn": 0,
     "my_life": 20,
     "opp_life": 20,
     "last_update": 0,
-    "grp_map": {},              # grpId (int) -> card name (str)
-    "instance_map": {},         # instanceId (int) -> {grpId, owner, zone, ...}
+    "grp_map": {},        # grpId (int) -> card name (str)
+    "instance_map": {},   # instanceId -> {grpId, owner, zone_type, ...}
 }
 lock = threading.Lock()
 
 SKIP_NAMES = {
     "Plains","Island","Swamp","Mountain","Forest",
     "Snow-Covered Plains","Snow-Covered Island","Snow-Covered Swamp",
-    "Snow-Covered Mountain","Snow-Covered Forest",
-    "Wastes","Token",
+    "Snow-Covered Mountain","Snow-Covered Forest","Wastes",
 }
 
 PHASE_LABELS = {
-    "Phase_Beginning": "Beginning",
-    "Phase_Main1": "Main Phase 1",
-    "Phase_Combat": "Combat",
-    "Phase_Main2": "Main Phase 2",
-    "Phase_Ending": "End Step",
+    "Phase_Beginning":"Beginning","Phase_Main1":"Main Phase 1",
+    "Phase_Combat":"Combat","Phase_Main2":"Main Phase 2","Phase_Ending":"End Step",
 }
-
 STEP_LABELS = {
-    "Step_Upkeep": "Upkeep",
-    "Step_Draw": "Draw",
-    "Step_BeginCombat": "Begin Combat",
-    "Step_DeclareAttack": "Declare Attackers",
-    "Step_DeclareBlock": "Declare Blockers",
-    "Step_CombatDamage": "Combat Damage",
-    "Step_EndCombat": "End of Combat",
-    "Step_End": "End Step",
-    "Step_Cleanup": "Cleanup",
+    "Step_Upkeep":"Upkeep","Step_Draw":"Draw","Step_BeginCombat":"Begin Combat",
+    "Step_DeclareAttack":"Declare Attackers","Step_DeclareBlock":"Declare Blockers",
+    "Step_CombatDamage":"Combat Damage","Step_EndCombat":"End of Combat",
+    "Step_End":"End Step","Step_Cleanup":"Cleanup",
 }
 
-# ── Load Scryfall card data ────────────────────────────────────────────────────
-def load_grp_map():
-    """Build grpId->name map from MTGA card data embedded in Scryfall bulk."""
-    # Scryfall oracle cards include arena_id which matches grpId
-    print("Loading card database from Scryfall...")
-    if not SCRYFALL_BULK.exists():
-        print("Downloading Scryfall bulk data (~50MB, once only)...")
+# ── Scryfall card resolution ───────────────────────────────────────────────────
+_looked_up = set()   # grpIds already attempted via API
+_lookup_lock = threading.Lock()
+
+def load_bulk():
+    """Try to load bulk Scryfall data (arena_id -> name). Optional speedup."""
+    if SCRYFALL_BULK.exists():
         try:
-            # Try to find the latest bulk data URL
-            meta = urllib.request.urlopen(
-                "https://api.scryfall.com/bulk-data", timeout=10
-            ).read()
-            meta_json = json.loads(meta)
-            url = next(
-                (d["download_uri"] for d in meta_json["data"]
-                 if d["type"] == "oracle_cards"), SCRYFALL_URL
-            )
-            urllib.request.urlretrieve(url, SCRYFALL_BULK)
-            print(f"Saved to {SCRYFALL_BULK}")
+            with open(SCRYFALL_BULK, encoding="utf-8") as f:
+                cards = json.load(f)
+            grp = {}
+            for c in cards:
+                aid = c.get("arena_id")
+                if aid:
+                    grp[int(aid)] = c["name"]
+            print(f"Loaded {len(grp):,} cards from cached Scryfall data.")
+            return grp
         except Exception as e:
-            print(f"Download failed: {e}")
-            print("Will resolve card names as they appear in the log instead.")
-            return {}
+            print(f"Could not load cached data: {e}")
 
-    grp = {}
-    try:
-        with open(SCRYFALL_BULK, encoding="utf-8") as f:
-            cards = json.load(f)
-        for c in cards:
-            aid = c.get("arena_id")
-            if aid:
-                grp[aid] = c["name"]
-        print(f"Loaded {len(grp):,} cards from Scryfall.")
-    except Exception as e:
-        print(f"Failed to parse card data: {e}")
-    return grp
+    print("No local card cache — will look up cards via Scryfall API as they appear.")
+    print("(Run once with internet to cache all cards for faster future use)\n")
 
-def resolve(grp_id: int) -> str | None:
-    with lock:
-        return state["grp_map"].get(grp_id)
+    # Try to download in background
+    def _download():
+        try:
+            meta = urllib.request.urlopen("https://api.scryfall.com/bulk-data", timeout=10).read()
+            url = next(
+                (d["download_uri"] for d in json.loads(meta)["data"] if d["type"] == "default_cards"),
+                None
+            )
+            if url:
+                print(f"Downloading card database ({url[:60]}...)...")
+                urllib.request.urlretrieve(url, SCRYFALL_BULK)
+                print(f"Card database saved — restart watcher for full offline resolution.")
+        except Exception as e:
+            print(f"Background download failed: {e}")
+    threading.Thread(target=_download, daemon=True).start()
+    return {}
+
+def lookup_grp(grp_id: int):
+    """Look up a single grpId via Scryfall /cards/arena/:id in a background thread."""
+    with _lookup_lock:
+        if grp_id in _looked_up:
+            return
+        _looked_up.add(grp_id)
+
+    def _fetch():
+        try:
+            url = f"https://api.scryfall.com/cards/arena/{grp_id}"
+            data = urllib.request.urlopen(url, timeout=6).read()
+            card = json.loads(data)
+            name = card.get("name")
+            if not name:
+                return
+            print(f"  [RESOLVED] grp={grp_id} -> {name}")
+            with lock:
+                state["grp_map"][grp_id] = name
+                # Retry any instance that was waiting on this grpId
+                for iid, info in state["instance_map"].items():
+                    if info.get("grpId") == grp_id and not info.get("name"):
+                        info["name"] = name
+                    if (info.get("grpId") == grp_id
+                            and info.get("owner") == 2
+                            and info.get("pending_add")):
+                        info["pending_add"] = False
+                        ctypes = info.get("cardTypes", [])
+                        token  = info.get("token", False)
+                        if ("CardType_Land" not in ctypes
+                                and not token
+                                and name not in SKIP_NAMES
+                                and name not in state["opponent_cards"]):
+                            state["opponent_cards"].append(name)
+                            state["last_update"] = time.time()
+                            print(f"  [CAST ] Opponent: {name}")
+        except Exception as e:
+            pass  # card might not exist in Arena
+    threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
 def parse_game_state(msg: dict):
@@ -125,120 +152,103 @@ def parse_game_state(msg: dict):
             state["phase"] = label
             state["turn"]  = turn
 
-        # Update instance map with new game objects
+        # Build/update instance map from game objects
         for obj in gm.get("gameObjects", []):
-            iid   = obj.get("instanceId")
-            grpid = obj.get("grpId")
-            owner = obj.get("ownerSeatId")
-            zone  = obj.get("zoneId")
+            iid    = obj.get("instanceId")
+            grpid  = obj.get("grpId")
+            owner  = obj.get("ownerSeatId")
+            zone   = obj.get("zoneId")
             tapped = obj.get("isTapped", False)
             power  = obj.get("power",  {}).get("value")
             tough  = obj.get("toughness", {}).get("value")
-            ctype  = obj.get("type", "")
             ctypes = obj.get("cardTypes", [])
-            token  = (ctype == "GameObjectType_Token")
+            otype  = obj.get("type", "")
+            token  = (otype == "GameObjectType_Token")
 
             if iid is None or grpid is None:
                 continue
 
             name = state["grp_map"].get(grpid)
-
+            existing = state["instance_map"].get(iid, {})
             state["instance_map"][iid] = {
-                "grpId": grpid,
-                "name": name,
-                "owner": owner,
-                "zone": zone,
-                "tapped": tapped,
-                "power": power,
+                "grpId":     grpid,
+                "name":      name,
+                "owner":     owner,
+                "zoneId":    zone,
+                "zone_type": existing.get("zone_type", ""),
+                "tapped":    tapped,
+                "power":     power,
                 "toughness": tough,
                 "cardTypes": ctypes,
-                "token": token,
+                "token":     token,
+                "pending_add": existing.get("pending_add", False),
             }
 
-        # Update zones — rebuild battlefield / hand from instance map
-        zones_data = {z["zoneId"]: z for z in gm.get("zones", [])}
-
-        # Zone IDs we care about (we track by instanceId membership):
-        # We rebuild full battlefield/hand on each GameStateMessage that
-        # includes zone info, since diffs accumulate.
-        rebuild_bf  = False
-        rebuild_hand = False
-
+        # Zone tracking
         for z in gm.get("zones", []):
             ztype = z.get("type", "")
             owner = z.get("ownerSeatId")
             iids  = z.get("objectInstanceIds", [])
 
             if ztype == "ZoneType_Battlefield":
-                rebuild_bf = True
-                # Track which instances are on battlefield
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Battlefield"
 
             elif ztype == "ZoneType_Hand" and owner == 1:
-                rebuild_hand = True
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Hand"
 
-            elif ztype == "ZoneType_Stack":
-                # Cards cast by opponent going on stack — capture as opponent card
-                for iid in iids:
-                    info = state["instance_map"].get(iid, {})
-                    if info.get("owner") == 2 and info.get("name"):
-                        name = info["name"]
-                        if (name not in SKIP_NAMES
-                                and name not in state["opponent_cards"]
-                                and "Token" not in info.get("cardTypes", [])):
-                            state["opponent_cards"].append(name)
-                            state["last_update"] = time.time()
-                            print(f"  [STACK] Opponent: {name}")
-
-        # Check annotations for ZoneTransfer CastSpell by opponent
+        # Annotation: ZoneTransfer CastSpell = opponent played a card
         for ann in gm.get("annotations", []):
-            ann_types = ann.get("type", [])
-            if "AnnotationType_ZoneTransfer" not in ann_types:
+            if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
                 continue
-            details = {d["key"]: d for d in ann.get("details", [])}
+            details  = {d["key"]: d for d in ann.get("details", [])}
             category = details.get("category", {}).get("valueString", [""])[0]
-            if category not in ("CastSpell", "Resolve"):
+            if category != "CastSpell":
                 continue
+
             for iid in ann.get("affectedIds", []):
-                info = state["instance_map"].get(iid, {})
+                info  = state["instance_map"].get(iid, {})
                 if info.get("owner") != 2:
                     continue
-                grpid = info.get("grpId")
-                # Try name from instance map first, then re-resolve from grp_map
-                name = info.get("name") or state["grp_map"].get(grpid)
+                grpid  = info.get("grpId")
+                name   = info.get("name") or state["grp_map"].get(grpid)
                 ctypes = info.get("cardTypes", [])
                 token  = info.get("token", False)
 
-                print(f"  [DBG ] ZoneTransfer cat={category} iid={iid} owner={info.get('owner')} grp={grpid} name={name} types={ctypes}")
+                if "CardType_Land" in ctypes or token:
+                    continue
 
-                if not name:
-                    print(f"  [WARN] grpId {grpid} not in card database — add manually if needed")
-                    continue
-                if name in SKIP_NAMES:
-                    continue
-                if "CardType_Land" in ctypes:
-                    continue
-                if token:
-                    continue
-                if name not in state["opponent_cards"]:
-                    state["opponent_cards"].append(name)
-                    state["last_update"] = time.time()
-                    print(f"  [CAST ] Opponent: {name}  (grp={grpid})")
+                if name and name not in SKIP_NAMES:
+                    if name not in state["opponent_cards"]:
+                        state["opponent_cards"].append(name)
+                        state["last_update"] = time.time()
+                        print(f"  [CAST ] Opponent: {name}")
+                elif grpid:
+                    # Name not resolved yet — mark pending and look up async
+                    print(f"  [QUEUE] grp={grpid} not resolved yet, looking up...")
+                    info["pending_add"] = True
+                    state["instance_map"][iid] = info
 
         state["last_update"] = time.time()
 
+    # Trigger async lookups for any unresolved grpIds seen this message
+    for obj in gm.get("gameObjects", []):
+        grpid = obj.get("grpId")
+        owner = obj.get("ownerSeatId")
+        if grpid and owner == 2:
+            with lock:
+                if grpid not in state["grp_map"]:
+                    lookup_grp(grpid)
+
 def rebuild_visible_state():
-    """Rebuild my_hand, my_battlefield, opp_battlefield from instance_map."""
     with lock:
         my_hand, my_bf, opp_bf = [], [], []
         for iid, info in state["instance_map"].items():
-            zt = info.get("zone_type")
-            name = info.get("name", "Unknown")
+            zt    = info.get("zone_type", "")
+            name  = info.get("name")
             owner = info.get("owner")
             if not name or info.get("token"):
                 continue
@@ -246,24 +256,22 @@ def rebuild_visible_state():
                 my_hand.append(name)
             elif zt == "Battlefield":
                 entry = {
-                    "name": name,
-                    "power": info.get("power"),
+                    "name":      name,
+                    "power":     info.get("power"),
                     "toughness": info.get("toughness"),
-                    "tapped": info.get("tapped", False),
-                    "types": info.get("cardTypes", []),
+                    "tapped":    info.get("tapped", False),
+                    "types":     info.get("cardTypes", []),
                 }
                 if owner == 1:
                     my_bf.append(entry)
                 elif owner == 2:
                     opp_bf.append(entry)
-        state["my_hand"] = my_hand
-        state["my_battlefield"] = my_bf
+        state["my_hand"]         = my_hand
+        state["my_battlefield"]  = my_bf
         state["opp_battlefield"] = opp_bf
 
-# ── Log parsing ────────────────────────────────────────────────────────────────
+# ── Log watcher ────────────────────────────────────────────────────────────────
 def parse_chunk(text: str):
-    """Find and parse all GreToClientEvent JSON blobs in a chunk."""
-    # Each event is a single-line JSON object after the log header
     for line in text.split("\n"):
         line = line.strip()
         if not line.startswith("{"):
@@ -272,19 +280,16 @@ def parse_chunk(text: str):
             blob = json.loads(line)
         except Exception:
             continue
-        event = blob.get("greToClientEvent", {})
-        for msg in event.get("greToClientMessages", []):
+        for msg in blob.get("greToClientEvent", {}).get("greToClientMessages", []):
             if msg.get("type") == "GREMessageType_GameStateMessage":
                 parse_game_state(msg)
     rebuild_visible_state()
 
 def watch_log():
-    print(f"\nWatching: {LOG_PATH}")
+    print(f"Watching: {LOG_PATH}")
     if not LOG_PATH.exists():
-        print(f"\n[ERROR] Log not found: {LOG_PATH}")
-        print("Enable Detailed Logs in Arena Settings and restart Arena.")
+        print(f"\n[ERROR] Log not found. Enable Detailed Logs in Arena Settings.\n")
         return
-
     with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
         f.seek(0, 2)
         print("Ready — watching for game events...\n")
@@ -302,7 +307,7 @@ def watch_log():
                     buf = ""
                 time.sleep(0.4)
 
-# ── HTTP server ────────────────────────────────────────────────────────────────
+# ── HTTP API ───────────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -324,27 +329,15 @@ class Handler(BaseHTTPRequestHandler):
                     "last_update":     state["last_update"],
                 }).encode()
             self._respond(body)
-
         elif self.path == "/cards":
             with lock:
-                body = json.dumps({
-                    "cards": state["opponent_cards"],
-                    "last_update": state["last_update"],
-                }).encode()
+                body = json.dumps({"cards": state["opponent_cards"], "last_update": state["last_update"]}).encode()
             self._respond(body)
-
         elif self.path == "/reset":
             with lock:
-                state["opponent_cards"]  = []
-                state["my_hand"]         = []
-                state["my_battlefield"]  = []
-                state["opp_battlefield"] = []
-                state["instance_map"]    = {}
-                state["phase"]           = ""
-                state["turn"]            = 0
-                state["my_life"]         = 20
-                state["opp_life"]        = 20
-                state["last_update"]     = time.time()
+                state.update({"opponent_cards":[],"my_hand":[],"my_battlefield":[],
+                    "opp_battlefield":[],"instance_map":{},"phase":"","turn":0,
+                    "my_life":20,"opp_life":20,"last_update":time.time()})
             print("\n[Reset — new game]\n")
             self._respond(b'{"ok":true}')
         else:
@@ -353,39 +346,31 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self): self.do_GET()
 
     def _respond(self, body):
-        self.send_response(200)
-        self._cors()
-        self.send_header("Content-Type", "application/json")
+        self.send_response(200); self._cors()
+        self.send_header("Content-Type","application/json")
         self.send_header("Content-Length", len(body))
-        self.end_headers()
-        self.wfile.write(body)
+        self.end_headers(); self.wfile.write(body)
 
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-def run_server(port=5000):
-    s = HTTPServer(("localhost", port), Handler)
-    print(f"API:  http://localhost:{port}/state  — full game state")
-    print(f"      http://localhost:{port}/cards  — opponent cards only")
-    print(f"      http://localhost:{port}/reset  — new game\n")
-    s.serve_forever()
+        self.send_header("Access-Control-Allow-Origin","*")
+        self.send_header("Access-Control-Allow-Methods","GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers","Content-Type")
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 52)
     print("  MTG Arena Watcher  —  Full Game State Edition")
-    print("=" * 52)
+    print("=" * 52 + "\n")
 
-    grp = load_grp_map()
+    grp = load_bulk()
     with lock:
         state["grp_map"] = grp
 
-    t = threading.Thread(target=watch_log, daemon=True)
-    t.start()
+    threading.Thread(target=watch_log, daemon=True).start()
 
     try:
-        run_server()
+        print(f"API:  http://localhost:5000/state")
+        print(f"      http://localhost:5000/reset\n")
+        HTTPServer(("localhost", 5000), Handler).serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
