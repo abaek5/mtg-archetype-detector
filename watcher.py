@@ -388,9 +388,16 @@ if __name__ == "__main__":
     threading.Thread(target=watch_log, daemon=True).start()
 
     try:
-        print("Open this in Chrome:  http://localhost:5000")
-        print("API: http://localhost:5000/state | /reset\n")
-        HTTPServer(("localhost", 5000), Handler).serve_forever()
+        # Try 127.0.0.1 explicitly — avoids IPv6/firewall issues on Windows
+        for port in [5000, 8080, 8888]:
+            try:
+                server = HTTPServer(("127.0.0.1", port), Handler)
+                print(f"Server started — open this in Chrome:  http://127.0.0.1:{port}")
+                print(f"Also try:  http://localhost:{port}\n")
+                server.serve_forever()
+                break
+            except OSError as e:
+                print(f"Port {port} unavailable ({e}), trying next...")
     except KeyboardInterrupt:
         print("\nStopped.")
 
