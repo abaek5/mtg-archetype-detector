@@ -363,8 +363,12 @@ button:active { transform: scale(0.98); }
       <div class="timeline" id="timeline"></div>
     </div>
 
+    <div id="watcher-status" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
+      <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Checking for Arena watcher...</span>
+    </div>
+
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto;">
-      <button class="new-game-btn" onclick="newGame()"><i class="ti ti-refresh"></i> New game</button>
+      <button class="new-game-btn" onclick="newGame();resetWatcher()"><i class="ti ti-refresh"></i> New game</button>
       <button class="clear-feed-btn" onclick="clearFeed()"><i class="ti ti-trash"></i> Clear feed</button>
     </div>
 
@@ -684,6 +688,54 @@ function newGame() { clearAll(); clearFeed(); }
 
 renderFormats();
 renderTags();
+
+/* ── Arena watcher polling ─────────────────────────────────────── */
+const WATCHER_URL = "http://localhost:5000";
+let watcherConnected = false;
+let lastSeenCards = [];
+
+function updateWatcherStatus(connected) {
+  const el = document.getElementById('watcher-status');
+  if (!el) return;
+  if (connected && !watcherConnected) {
+    el.innerHTML = '<span style="color:#1D9E75"><i class="ti ti-wifi" style="font-size:13px;vertical-align:-2px"></i> Arena watcher connected — cards will appear automatically</span>';
+  } else if (!connected) {
+    el.innerHTML = '<span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Arena watcher offline — <a href="https://github.com/abaek5/mtg-archetype-detector#setup" target="_blank" style="color:var(--accent-advice)">start watcher.py</a> to auto-detect cards</span>';
+  }
+  watcherConnected = connected;
+}
+
+async function pollWatcher() {
+  try {
+    const resp = await fetch(WATCHER_URL + "/cards", { signal: AbortSignal.timeout(1500) });
+    if (!resp.ok) throw new Error("bad response");
+    const data = await resp.json();
+    updateWatcherStatus(true);
+    const newCards = (data.cards || []).filter(c => !lastSeenCards.includes(c));
+    for (const card of newCards) {
+      if (!opponentCards.includes(card)) {
+        opponentCards.push(card);
+        renderTags();
+        await triggerAnalysis(card);
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+    lastSeenCards = data.cards || [];
+  } catch(e) {
+    updateWatcherStatus(false);
+  }
+}
+
+async function resetWatcher() {
+  try {
+    await fetch(WATCHER_URL + "/reset", { signal: AbortSignal.timeout(1500) });
+  } catch(e) {}
+  lastSeenCards = [];
+}
+
+// Poll every 2 seconds
+setInterval(pollWatcher, 2000);
+pollWatcher();
 </script>
 </body>
 </html>
