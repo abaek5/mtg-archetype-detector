@@ -121,7 +121,7 @@ def lookup_grp(grp_id: int):
                             state["last_update"] = time.time()
                             print(f"  [CAST ] Opponent: {name}")
         except Exception as e:
-            pass  # card might not exist in Arena
+            print(f"  [ERR  ] Scryfall lookup grp={grp_id}: {e}")
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
