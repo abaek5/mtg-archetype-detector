@@ -78,7 +78,11 @@ def load_bulk():
             )
             if url:
                 print(f"Downloading card database ({url[:60]}...)...")
-                urllib.request.urlretrieve(url, SCRYFALL_BULK)
+                opener = urllib.request.build_opener()
+            opener.addheaders = [("User-Agent", "MTGArchetypeDetector/1.0")]
+            with opener.open(url, timeout=30) as r:
+                with open(SCRYFALL_BULK, "wb") as f:
+                    f.write(r.read())
                 print(f"Card database saved — restart watcher for full offline resolution.")
         except Exception as e:
             print(f"Background download failed: {e}")
@@ -95,7 +99,8 @@ def lookup_grp(grp_id: int):
     def _fetch():
         try:
             url = f"https://api.scryfall.com/cards/arena/{grp_id}"
-            data = urllib.request.urlopen(url, timeout=6).read()
+            req = urllib.request.Request(url, headers={"User-Agent": "MTGArchetypeDetector/1.0", "Accept": "application/json"})
+            data = urllib.request.urlopen(req, timeout=6).read()
             card = json.loads(data)
             name = card.get("name")
             if not name:
