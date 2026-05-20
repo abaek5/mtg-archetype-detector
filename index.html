@@ -350,7 +350,8 @@ button:active { transform: scale(0.98); }
       <div class="panel-title"><i class="ti ti-eye"></i> Opponent cards seen</div>
       <div class="tag-area" id="tags"><span class="empty-hint">Type a card and press Enter</span></div>
       <div class="card-input-row">
-        <input type="text" id="card-input" placeholder="Card name..." />
+        <input type="text" id="card-input" placeholder="Card name..." onkeydown="if(event.key==='Enter')addCard()" />
+        <button onclick="addCard()" style="padding:0 12px;"><i class="ti ti-plus"></i></button>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:5px;">
         <button class="clear-link" onclick="clearAll()">Clear all cards</button>
@@ -505,7 +506,7 @@ function addCard() {
   triggerAnalysis(val);
 }
 
-document.getElementById('card-input').addEventListener('keydown', e => { if (e.key === 'Enter') addCard(); });
+
 
 function removeCard(i) { opponentCards.splice(i, 1); renderTags(); }
 
