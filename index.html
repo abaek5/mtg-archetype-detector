@@ -975,6 +975,14 @@ async function resetWatcher() {
         body: 'true'
       })
     ]);
+    // Auto-clear reset flag after 5 seconds so watcher only resets once
+    setTimeout(function() {
+      fetch(FB_URL + '/reset_requested.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'false'
+      }).catch(function(){});
+    }, 5000);
   } catch(e) {}
 }
 
