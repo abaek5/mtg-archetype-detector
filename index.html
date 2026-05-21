@@ -707,9 +707,9 @@ renderTags();
 /* ── Firebase realtime sync ────────────────────────────────────── */
 // Firebase config
 const FB_URL = "https://mtg-detector-40285-default-rtdb.firebaseio.com";
-let lastSeenCards = [];
-let lastGameState = {};
-let watcherConnected = false;
+var lastSeenCards = [];
+var lastGameState = {};
+var watcherConnected = false;
 
 function updateWatcherStatus(connected) {
   const el = document.getElementById('watcher-status');
