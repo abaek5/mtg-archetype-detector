@@ -387,14 +387,6 @@ button:active { transform: scale(0.98); }
       <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Start watcher.py to connect</span>
     </div>
 
-    <div id="bo3-panel" style="display:none;background:var(--bg-secondary);border-radius:var(--radius-lg);padding:10px 12px;">
-      <div class="section-label" style="margin-bottom:6px;">Best of 3</div>
-      <div id="game-indicator" style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:8px;">Game 1</div>
-      <div id="sideboard-advice" style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;"></div>
-      <button onclick="startGame2()" style="width:100%;justify-content:center;font-size:12px;"><i class="ti ti-arrow-right"></i> Start Game 2</button>
-      <button onclick="startGame2()" id="game3-btn" style="width:100%;justify-content:center;font-size:12px;margin-top:4px;display:none;"><i class="ti ti-arrow-right"></i> Start Game 3</button>
-    </div>
-
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto;">
       <button class="new-game-btn" onclick="newGame();resetWatcher()"><i class="ti ti-refresh"></i> New game</button>
       <button class="clear-feed-btn" onclick="clearFeed()"><i class="ti ti-trash"></i> Clear feed</button>
@@ -402,8 +394,29 @@ button:active { transform: scale(0.98); }
 
   </div>
 
+  <!-- ── MAIN AREA ── -->
+  <div style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+
+  <!-- ── SIDEBOARD ADVICE PANEL ── -->
+  <div id="sideboard-panel" style="display:none;background:var(--bg);border-bottom:0.5px solid var(--border);padding:14px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#378ADD;"></div>
+        <span style="font-size:14px;font-weight:500;color:var(--text);">Sideboard Advisor</span>
+        <span id="sb-game-indicator" style="font-size:11px;color:var(--text-secondary);background:var(--bg-secondary);padding:2px 8px;border-radius:999px;">Game 1</span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button onclick="startNextGame()" style="font-size:12px;padding:4px 12px;"><i class="ti ti-arrow-right"></i> Next Game</button>
+        <button onclick="document.getElementById('sideboard-panel').style.display='none'" style="font-size:12px;padding:4px 8px;color:var(--text-secondary);"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div id="sideboard-advice-content" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div id="sb-loading" style="grid-column:1/-1;font-size:13px;color:var(--text-secondary);">Waiting for archetype identification...</div>
+    </div>
+  </div>
+
   <!-- ── FEED ── -->
-  <div class="feed" id="feed">
+  <div class="feed" id="feed" style="flex:1;overflow-y:auto;">
     <div class="feed-empty" id="feed-empty">
       <i class="ti ti-cards" style="font-size:32px;display:block;margin-bottom:8px;color:var(--text-secondary)"></i>
       Add opponent cards to start reading their deck
@@ -787,70 +800,104 @@ function setWatcherUrl() {
 
 async function getSideboardAdvice(archetype) {
   const key = getApiKey();
-  if (!key || !myDeck.sideboard || !myDeck.sideboard.length) return null;
+  if (!key) return { error: 'no_key' };
+  if (!myDeck.sideboard || !myDeck.sideboard.length) return { error: 'no_sideboard' };
   try {
     const advice = await callClaude(
-      `You are an expert MTG sideboard advisor. Given the opponent's archetype and the player's sideboard, recommend exactly which cards to bring in and take out. Respond ONLY with valid JSON (no markdown): {bring_in: [{card: string, qty: number, reason: string}], take_out: [{card: string, qty: number, reason: string}], summary: string}`,
-      `Opponent archetype: ${archetype.name} (${archetype.strategy}). Opponent cards seen: ${opponentCards.join(', ')}. My sideboard: ${[...new Set(myDeck.sideboard)].join(', ')}. My main deck: ${[...new Set(myDeck.cards)].join(', ')}`
+      'You are an expert MTG sideboard advisor. Given the opponent archetype and player sideboard, give precise swap recommendations. Respond ONLY with valid JSON: {bring_in: [{card: string, qty: number, reason: string}], take_out: [{card: string, qty: number, reason: string}], summary: string, matchup_notes: string}',
+      'Opponent: ' + archetype.name + ' (' + archetype.strategy + '). Their cards: ' + opponentCards.slice(0,10).join(', ') + '. My sideboard: ' + [...new Set(myDeck.sideboard)].join(', ') + '. My main deck: ' + [...new Set(myDeck.cards)].join(', ')
     );
     return advice;
-  } catch(e) { return null; }
+  } catch(e) { return { error: 'api_error' }; }
 }
 
 async function showSideboardPanel(archetype) {
-  const panel = document.getElementById('bo3-panel');
-  const adviceEl = document.getElementById('sideboard-advice');
+  const panel = document.getElementById('sideboard-panel');
+  const content = document.getElementById('sideboard-advice-content');
+  if (!panel || !content) return;
+
   panel.style.display = 'block';
   matchState.archetypeConfirmed = archetype;
 
+  // Show archetype header
+  var colorBadges = (archetype.colors||[]).map(function(c) {
+    return '<span class="badge ' + badgeFor(c) + '" style="font-size:10px">' + c + '</span>';
+  }).join(' ');
+
+  var header = '<div style="grid-column:1/-1;margin-bottom:8px;">' +
+    '<div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:4px;">vs ' + archetype.name + 
+    ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400">· ' + archetype.strategy + '</span></div>' +
+    '<div class="badges">' + colorBadges + '</div>' +
+    '</div>';
+
   if (!myDeck.sideboard || !myDeck.sideboard.length) {
-    adviceEl.innerHTML = '<span style="color:var(--text-secondary)">Load a deck with sideboard to get swap recommendations.</span>';
+    content.innerHTML = header + '<div style="grid-column:1/-1;font-size:12px;color:var(--text-secondary);">Load a deck with sideboard from the dropdown to get swap recommendations.</div>';
     return;
   }
   if (!getApiKey()) {
-    adviceEl.innerHTML = '<span style="color:var(--text-secondary)">Add Anthropic API key for sideboard recommendations.</span>';
+    content.innerHTML = header + '<div style="grid-column:1/-1;font-size:12px;color:var(--text-secondary);">Add your Anthropic API key in the sidebar to enable sideboard recommendations.</div>';
     return;
   }
 
-  adviceEl.innerHTML = '<span class="dot-anim">Getting sideboard advice</span>';
+  content.innerHTML = header + '<div style="grid-column:1/-1;font-size:12px;color:var(--text-secondary);"><span class="dot-anim">Analyzing matchup and sideboard</span></div>';
+
   const advice = await getSideboardAdvice(archetype);
-  if (!advice) { adviceEl.innerHTML = 'Could not generate advice.'; return; }
+
+  if (!advice || advice.error) {
+    var msg = advice && advice.error === 'no_key' ? 'Add API key to enable recommendations.' :
+              advice && advice.error === 'no_sideboard' ? 'No sideboard found in loaded deck.' :
+              'Could not generate advice — try again.';
+    content.innerHTML = header + '<div style="grid-column:1/-1;font-size:12px;color:var(--text-secondary);">' + msg + '</div>';
+    return;
+  }
 
   matchState.sideboardAdvice = advice;
-  adviceEl.innerHTML = `
-    <div style="margin-bottom:6px;font-size:12px;color:var(--text)">${advice.summary}</div>
-    ${(advice.bring_in||[]).map(c=>`<div style="font-size:11px;padding:2px 0;color:#085041"><i class="ti ti-plus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('')}
-    ${(advice.take_out||[]).map(c=>`<div style="font-size:11px;padding:2px 0;color:#791F1F"><i class="ti ti-minus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('')}
-  `;
+
+  var bringIn = (advice.bring_in || []).map(function(c) {
+    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:0.5px solid var(--border);">' +
+      '<div><span style="color:#085041;font-weight:500;font-size:12px"><i class="ti ti-plus" style="font-size:11px"></i> ' + c.qty + 'x ' + c.card + '</span>' +
+      '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + (c.reason||'') + '</div></div>' +
+      '</div>';
+  }).join('');
+
+  var takeOut = (advice.take_out || []).map(function(c) {
+    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:0.5px solid var(--border);">' +
+      '<div><span style="color:#791F1F;font-weight:500;font-size:12px"><i class="ti ti-minus" style="font-size:11px"></i> ' + c.qty + 'x ' + c.card + '</span>' +
+      '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + (c.reason||'') + '</div></div>' +
+      '</div>';
+  }).join('');
+
+  content.innerHTML = header +
+    '<div>' +
+      '<div class="section-label" style="margin-bottom:4px;">Bring In</div>' +
+      (bringIn || '<div style="font-size:11px;color:var(--text-secondary)">No changes recommended</div>') +
+    '</div>' +
+    '<div>' +
+      '<div class="section-label" style="margin-bottom:4px;">Take Out</div>' +
+      (takeOut || '<div style="font-size:11px;color:var(--text-secondary)">No changes recommended</div>') +
+    '</div>' +
+    (advice.matchup_notes ? '<div style="grid-column:1/-1;margin-top:8px;padding:8px;background:var(--bg-secondary);border-radius:var(--radius-md);font-size:11px;color:var(--text-secondary)"><strong style="color:var(--text)">Matchup notes:</strong> ' + advice.matchup_notes + '</div>' : '') +
+    '<div style="grid-column:1/-1;margin-top:6px;font-size:11px;color:var(--text-secondary);font-style:italic">' + (advice.summary||'') + '</div>';
 }
 
-function startGame2() {
+function startNextGame() {
   const gameNum = matchState.game + 1;
-  matchState.game = gameNum;
-  document.getElementById('game-indicator').textContent = `Game ${gameNum}`;
-  if (gameNum === 3) document.getElementById('game3-btn').style.display = 'none';
-  // Keep archetype but clear card feed for new game
-  const prevArchetype = matchState.archetypeConfirmed;
+  matchState.game = Math.min(gameNum, 3);
+  var ind = document.getElementById('sb-game-indicator');
+  if (ind) ind.textContent = 'Game ' + matchState.game;
+  // Clear card feed for new game but keep sideboard advice visible
   clearFeed();
   opponentCards = [];
   renderTags();
   lastSeenCards = [];
-  // Show sideboard advice prominently
-  if (prevArchetype) {
-    document.getElementById('sideboard-advice').innerHTML = 
-      matchState.sideboardAdvice
-        ? `<div style="font-size:11px;font-weight:500;color:var(--text);margin-bottom:4px;">vs ${prevArchetype.name}</div>` +
-          (matchState.sideboardAdvice.bring_in||[]).map(c=>`<div style="font-size:11px;color:#085041"><i class="ti ti-plus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('') +
-          (matchState.sideboardAdvice.take_out||[]).map(c=>`<div style="font-size:11px;color:#791F1F"><i class="ti ti-minus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('')
-        : `Facing ${prevArchetype.name} — sideboard accordingly.`;
-  }
+  matchState.archetypeConfirmed = null; // allow re-detection
 }
 
-// Show Bo3 panel when archetype confidence hits 65%+
+// Show sideboard panel when archetype confidence hits 60%+
 const _origAddFeedEntry = addFeedEntry;
 addFeedEntry = function(args) {
   _origAddFeedEntry(args);
-  if (args.archetype && Math.round(args.archetype.confidence||0) >= 65 && !matchState.archetypeConfirmed) {
+  if (args.archetype && Math.round(args.archetype.confidence||0) >= 60 && !matchState.archetypeConfirmed) {
     showSideboardPanel(args.archetype);
   }
 };
