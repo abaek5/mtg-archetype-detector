@@ -335,19 +335,32 @@ button:active { transform: scale(0.98); }
 
     <div class="panel">
       <div class="panel-title"><i class="ti ti-cards"></i> My deck</div>
+
+      <!-- Deck selector -->
+      <div style="display:flex;gap:5px;margin-bottom:6px;">
+        <select id="deck-selector" style="flex:1;font-size:11px;background:var(--bg);color:var(--text);border:0.5px solid var(--border);border-radius:var(--radius-md);padding:0 6px;height:28px;">
+          <option value="">-- Select saved deck --</option>
+        </select>
+        <button onclick="loadSelectedDeck()" style="padding:0 8px;font-size:11px;" title="Load selected deck"><i class="ti ti-download"></i></button>
+        <button onclick="deleteDeck()" style="padding:0 8px;font-size:11px;color:#791F1F;" title="Delete selected deck"><i class="ti ti-trash"></i></button>
+      </div>
+
+      <!-- Paste area -->
       <textarea id="my-deck-input" placeholder="Paste Arena export:
 
 4 Lightning Bolt
 4 Goblin Guide
 ...
 
-(Arena → Share → Copy Decklist)"></textarea>
-      <button class="parse-btn" onclick="parseDeck()"><i class="ti ti-check"></i> Load deck</button>
-      <div style="font-size:10px;color:var(--text-secondary);margin-top:5px;line-height:1.5;">
-        In Arena: <strong>Decks → ⋮ → Share → Copy to Clipboard</strong><br>
-        Then paste above and click Load deck.
+(Arena → Decks → ⋮ → Share → Copy)"></textarea>
+
+      <!-- Save + Load buttons -->
+      <div style="display:flex;gap:5px;margin-top:6px;">
+        <input type="text" id="deck-name-input" placeholder="Deck name..." style="flex:1;font-size:11px;height:28px;" />
+        <button onclick="saveDeck()" style="padding:0 8px;font-size:11px;" title="Save deck"><i class="ti ti-device-floppy"></i></button>
+        <button onclick="parseDeck()" style="padding:0 8px;font-size:11px;" title="Load without saving"><i class="ti ti-check"></i></button>
       </div>
-      <div id="deck-status"></div>
+      <div id="deck-status" style="margin-top:5px;"></div>
     </div>
 
     <div class="panel">
@@ -841,7 +854,67 @@ addFeedEntry = function(args) {
   }
 };
 
-// Restore saved API key
+// ── Deck manager ──────────────────────────────────────────────────────────────
+function getDeckLibrary() {
+  try { return JSON.parse(localStorage.getItem('mtgDeckLibrary') || '{}'); } catch(e) { return {}; }
+}
+
+function saveDeckLibrary(lib) {
+  localStorage.setItem('mtgDeckLibrary', JSON.stringify(lib));
+}
+
+function renderDeckSelector() {
+  const sel = document.getElementById('deck-selector');
+  if (!sel) return;
+  const lib = getDeckLibrary();
+  const names = Object.keys(lib).sort();
+  sel.innerHTML = '<option value="">-- Select saved deck --</option>' +
+    names.map(n => '<option value="' + n + '">' + n + '</option>').join('');
+}
+
+function saveDeck() {
+  const raw = document.getElementById('my-deck-input').value.trim();
+  const nameInput = document.getElementById('deck-name-input');
+  const name = nameInput.value.trim();
+  if (!raw) { alert('Paste a decklist first.'); return; }
+  if (!name) { alert('Enter a deck name.'); return; }
+  const lib = getDeckLibrary();
+  lib[name] = raw;
+  saveDeckLibrary(lib);
+  renderDeckSelector();
+  // Select the saved deck
+  document.getElementById('deck-selector').value = name;
+  nameInput.value = '';
+  parseDeck();
+  const el = document.getElementById('deck-status');
+  el.innerHTML = '<div class="deck-loaded"><i class="ti ti-device-floppy" style="font-size:13px"></i> Saved as "' + name + '"</div>';
+}
+
+function loadSelectedDeck() {
+  const sel = document.getElementById('deck-selector');
+  const name = sel.value;
+  if (!name) { alert('Select a deck first.'); return; }
+  const lib = getDeckLibrary();
+  if (!lib[name]) { alert('Deck not found.'); return; }
+  document.getElementById('my-deck-input').value = lib[name];
+  parseDeck();
+}
+
+function deleteDeck() {
+  const sel = document.getElementById('deck-selector');
+  const name = sel.value;
+  if (!name) { alert('Select a deck to delete.'); return; }
+  if (!confirm('Delete "' + name + '"?')) return;
+  const lib = getDeckLibrary();
+  delete lib[name];
+  saveDeckLibrary(lib);
+  renderDeckSelector();
+  document.getElementById('my-deck-input').value = '';
+  document.getElementById('deck-status').innerHTML = '';
+  myDeck = { cards: [], sideboard: [] };
+}
+
+// ── Restore saved API key
 (function() {
   var saved = localStorage.getItem('mtgApiKey') || '';
   var input = document.getElementById('api-key');
@@ -850,6 +923,7 @@ addFeedEntry = function(args) {
 
 renderFormats();
 renderTags();
+renderDeckSelector();
 
 /* ── Firebase realtime sync ────────────────────────────────────── */
 // Firebase config
