@@ -790,12 +790,19 @@ async function resetWatcher() {
   opponentCards = [];
   renderTags();
   try {
-    // Set reset flag — watcher detects this and clears its memory
-    await fetch(`${FB_URL}/reset_requested.json`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: 'true'
-    });
+    // Clear Firebase state AND set reset flag for watcher
+    await Promise.all([
+      fetch(`${FB_URL}/state/opponent_cards.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'null'
+      }),
+      fetch(`${FB_URL}/reset_requested.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'true'
+      })
+    ]);
   } catch(e) {}
 }
 
