@@ -444,7 +444,8 @@ def push_loop():
         except Exception:
             pass
         sync_battlefield_to_opponent_cards()
-        push_to_firebase()
+        if time.time() >= reset_hold_until:
+            push_to_firebase()
         time.sleep(2)
 
 # ── Log watcher ────────────────────────────────────────────────────────────────
