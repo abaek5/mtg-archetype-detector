@@ -851,29 +851,49 @@ function renderGameState(s) {
   if (!el) return;
   if (!s.phase && !s.turn) { el.style.display='none'; return; }
   el.style.display = 'block';
-  const life = (n, cls) => `<span style="font-size:13px;font-weight:500;color:${cls}">${n}</span>`;
-  const myLife  = s.my_life  <= 5 ? '#E24B4A' : s.my_life  <= 10 ? '#BA7517' : '#1D9E75';
-  const oppLife = s.opp_life <= 5 ? '#E24B4A' : s.opp_life <= 10 ? '#BA7517' : '#1D9E75';
-  const creature = bf => (bf||[]).filter(c => (c.types||[]).includes('CardType_Creature'));
-  const cardPill = (c, tapped) => `<div style="font-size:11px;padding:2px 7px;background:var(--bg-secondary);border:0.5px solid var(--border);border-radius:var(--radius-md);margin-bottom:3px;opacity:${tapped?'0.5':'1'}">${c.name}${c.power!=null?` <span style="color:var(--text-secondary)">${c.power}/${c.toughness}</span>`:''}</div>`;
-  const myCreatures  = creature(s.my_battlefield);
-  const oppCreatures = creature(s.opp_battlefield);
-  const myHand = s.my_hand || [];
-  el.innerHTML = `
-    <div class="section-label" style="margin-bottom:6px;">Live game state</div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-      <div style="font-size:11px;color:var(--text-secondary)">Turn ${s.turn||'—'}</div>
-      <div style="font-size:11px;color:var(--text-secondary)">${s.phase||''}</div>
-    </div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-      <div style="font-size:12px;color:var(--text-secondary)">You ${life(s.my_life??20,myLife)}</div>
-      <div style="font-size:12px;color:var(--text-secondary)">Opp ${life(s.opp_life??20,oppLife)}</div>
-    </div>
-    ${oppCreatures.length?`<div class="section-label" style="margin-bottom:4px;">Their board</div>${oppCreatures.map(c=>cardPill(c,c.tapped)).join('')}`:''} 
-    ${myCreatures.length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>${myCreatures.map(c=>cardPill(c,c.tapped)).join('')}`:''} 
-    ${myHand.length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>${myHand.map(n=>`<div style="font-size:11px;padding:2px 7px;background:#E1F5EE;border-radius:var(--radius-md);color:#085041;margin-bottom:3px;">${n}</div>`).join('')}`:''} 
-    ${(s.opp_graveyard||[]).length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Their graveyard (${s.opp_graveyard.length})</div><div style="font-size:10px;color:var(--text-secondary);max-height:80px;overflow-y:auto;">${s.opp_graveyard.slice(0,15).join(', ')}${s.opp_graveyard.length>15?\` +${s.opp_graveyard.length-15} more\`:''}</div>`:''}
-  `;
+
+  function life(n, cls) { return '<span style="font-size:13px;font-weight:500;color:' + cls + '">' + n + '</span>'; }
+  var myLifeColor  = s.my_life  <= 5 ? '#E24B4A' : s.my_life  <= 10 ? '#BA7517' : '#1D9E75';
+  var oppLifeColor = s.opp_life <= 5 ? '#E24B4A' : s.opp_life <= 10 ? '#BA7517' : '#1D9E75';
+
+  function creature(bf) { return (bf||[]).filter(function(c) { return (c.types||[]).includes('CardType_Creature'); }); }
+  function cardPill(c) {
+    return '<div style="font-size:11px;padding:2px 7px;background:var(--bg-secondary);border:0.5px solid var(--border);border-radius:var(--radius-md);margin-bottom:3px;opacity:' + (c.tapped?'0.5':'1') + '">' +
+      c.name + (c.power != null ? ' <span style="color:var(--text-secondary)">' + c.power + '/' + c.toughness + '</span>' : '') + '</div>';
+  }
+
+  var myCreatures  = creature(s.my_battlefield);
+  var oppCreatures = creature(s.opp_battlefield);
+  var myHand = s.my_hand || [];
+  var graveyard = s.opp_graveyard || [];
+
+  var html = '<div class="section-label" style="margin-bottom:6px;">Live game state</div>' +
+    '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
+      '<div style="font-size:11px;color:var(--text-secondary)">Turn ' + (s.turn||'—') + '</div>' +
+      '<div style="font-size:11px;color:var(--text-secondary)">' + (s.phase||'') + '</div>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
+      '<div style="font-size:12px;color:var(--text-secondary)">You ' + life(s.my_life != null ? s.my_life : 20, myLifeColor) + '</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary)">Opp ' + life(s.opp_life != null ? s.opp_life : 20, oppLifeColor) + '</div>' +
+    '</div>';
+
+  if (oppCreatures.length) {
+    html += '<div class="section-label" style="margin-bottom:4px;">Their board</div>' + oppCreatures.map(cardPill).join('');
+  }
+  if (myCreatures.length) {
+    html += '<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>' + myCreatures.map(cardPill).join('');
+  }
+  if (myHand.length) {
+    html += '<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>' +
+      myHand.map(function(n) { return '<div style="font-size:11px;padding:2px 7px;background:#E1F5EE;border-radius:var(--radius-md);color:#085041;margin-bottom:3px;">' + n + '</div>'; }).join('');
+  }
+  if (graveyard.length) {
+    var more = graveyard.length > 15 ? ' +' + (graveyard.length - 15) + ' more' : '';
+    html += '<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Their graveyard (' + graveyard.length + ')</div>' +
+      '<div style="font-size:10px;color:var(--text-secondary);max-height:80px;overflow-y:auto;">' + graveyard.slice(0,15).join(', ') + more + '</div>';
+  }
+
+  el.innerHTML = html;
 }
 
 async function pollFirebase() {
