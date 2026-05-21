@@ -26,6 +26,7 @@ state = {
     "opp_life": 20,
     "last_update": 0,
     "grp_map": {},        # grpId (int) -> card name (str)
+    "my_seat": None,      # detected from log (1 or 2)
     "instance_map": {},   # instanceId -> {grpId, owner, zone_type, ...}
 }
 lock = threading.Lock()
@@ -132,6 +133,17 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
+def detect_my_seat(text: str):
+    """Extract our seat number from ClientToGREUIMessage lines."""
+    import re
+    m = re.search(r'"systemSeatId"\s*:\s*(\d+)', text)
+    if m:
+        seat = int(m.group(1))
+        with lock:
+            if state["my_seat"] != seat:
+                state["my_seat"] = seat
+                print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
     if not gm:
@@ -218,7 +230,9 @@ def parse_game_state(msg: dict):
 
             for iid in ann.get("affectedIds", []):
                 info  = state["instance_map"].get(iid, {})
-                if info.get("owner") != 2:
+                my_seat = state.get("my_seat") or 1
+                opp_seat = 3 - my_seat
+                if info.get("owner") != opp_seat:
                     continue
                 grpid  = info.get("grpId")
                 name   = info.get("name") or state["grp_map"].get(grpid)
@@ -245,7 +259,9 @@ def parse_game_state(msg: dict):
     for obj in gm.get("gameObjects", []):
         grpid = obj.get("grpId")
         owner = obj.get("ownerSeatId")
-        if grpid and owner == 2:
+        my_seat = state.get("my_seat") or 1
+        opp_seat = 3 - my_seat
+        if grpid and owner == opp_seat:
             with lock:
                 if grpid not in state["grp_map"]:
                     lookup_grp(grpid)
@@ -311,6 +327,7 @@ def push_loop():
 
 # ── Log watcher ────────────────────────────────────────────────────────────────
 def parse_chunk(text: str):
+    detect_my_seat(text)
     for line in text.split("\n"):
         line = line.strip()
         if not line.startswith("{"):
