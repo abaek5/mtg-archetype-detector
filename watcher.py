@@ -216,6 +216,16 @@ def parse_game_state(msg: dict):
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Hand"
 
+        # Detect new match — reset opponent cards when turn 1 starts fresh
+        ti = gm.get("turnInfo", {})
+        if ti.get("turnNumber") == 1 and ti.get("phase") == "Phase_Beginning":
+            if state["turn"] > 1 or state["opponent_cards"]:  # was mid-game
+                state["opponent_cards"] = []
+                state["instance_map"] = {}
+                state["my_seat"] = None
+                state["last_update"] = time.time()
+                print("  [RESET] New match detected — clearing opponent cards")
+
         # Annotation: ZoneTransfer CastSpell = opponent played a card
         for ann in gm.get("annotations", []):
             if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
