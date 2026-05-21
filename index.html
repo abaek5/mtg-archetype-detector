@@ -466,7 +466,11 @@ function scoreArchetype(a, cardList) {
   let score = 0, matches = [];
   for (const card of unique) {
     for (const ac of a.cards) {
-      if (ac.includes(card) || card.includes(ac.split(' ')[0])) {
+      const firstWord = ac.split(' ')[0];
+      // Require exact full name match OR first word match with 4+ chars to avoid "on", "the", "of" false matches
+      const nameMatch = ac === card || ac.includes(card);
+      const firstWordMatch = firstWord.length >= 4 && card.includes(firstWord);
+      if (nameMatch || firstWordMatch) {
         score++;
         if (!matches.includes(ac)) matches.push(ac);
         break;
