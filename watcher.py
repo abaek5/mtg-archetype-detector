@@ -19,6 +19,7 @@ state = {
     "opponent_cards": [],
     "opp_graveyard": [],    # cards milled/killed into opponent graveyard
     "match_game": 1,      # current game in match (1, 2, 3)
+    "last_reset": 0,      # timestamp of last reset to prevent rapid resets
     "my_seat": 0,         # 0=unknown, detected from log
     "_in_client_msg": False,
     "my_hand": [],
