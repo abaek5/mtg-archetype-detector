@@ -134,21 +134,21 @@ def lookup_grp(grp_id: int):
 
 # ── Parse game state messages ──────────────────────────────────────────────────
 def detect_my_seat(text: str):
-    """Extract our seat number from ClientToGREUIMessage lines (client->server only)."""
+    """Detect our seat from greToClientMessages systemSeatIds (always contains only our seat)."""
     import re
-    # Only look in lines that are FROM us TO the server (ClientToGREUIMessage)
-    # These lines contain our systemSeatId
-    for line in text.split("\n"):
-        if "ClientToGREUIMessage" not in line and "clientToMatchServiceMessageType" not in line:
-            continue
-        m = re.search(r'"systemSeatId"\s*:\s*(\d+)', line)
-        if m:
-            seat = int(m.group(1))
+    with lock:
+        if state["my_seat"] is not None:
+            return  # already detected, don't change
+    # systemSeatIds in greToClientMessages is always [our_seat]
+    # Find blocks where systemSeatIds has exactly one value
+    for m in re.finditer(r'"systemSeatIds"\s*:\s*\[\s*(\d+)\s*\]', text):
+        seat = int(m.group(1))
+        if seat in (1, 2):
             with lock:
                 if state["my_seat"] is None:
                     state["my_seat"] = seat
                     print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
-            break
+            return
 
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
