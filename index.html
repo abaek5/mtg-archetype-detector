@@ -622,15 +622,20 @@ function addFeedEntry({ archetype, usedAI, newCard, advice, cardCount, scored })
 
   // Show all candidates with scores when 2+ match
   const allMatches = scored ? scored.slice(0,5) : (archetype.others ? [archetype, ...archetype.others] : []);
-  const othersHTML = allMatches.length > 1
-    ? `<div style="margin-top:8px;">
-        <div class="section-label" style="margin-bottom:4px;">All candidates</div>
-        ${allMatches.map((o,i) => `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:0.5px solid var(--border);">
-          <span style="color:${i===0?'var(--text)':'var(--text-secondary)'};font-weight:${i===0?'500':'400'}">${i===0?'★ ':''}${o.name}</span>
-          <span style="color:var(--text-secondary)">${o.score} card${o.score!==1?'s':''} · ${Math.round(o.confidence||0)}%</span>
-        </div>`).join('')}
-      </div>`
-    : '';
+  let othersHTML = '';
+  if (allMatches.length > 1) {
+    const rows = allMatches.map(function(o, i) {
+      const color = i === 0 ? 'var(--text)' : 'var(--text-secondary)';
+      const weight = i === 0 ? '500' : '400';
+      const star = i === 0 ? '★ ' : '';
+      const qty = o.score !== 1 ? 's' : '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:0.5px solid var(--border);">' +
+        '<span style="color:' + color + ';font-weight:' + weight + '">' + star + o.name + '</span>' +
+        '<span style="color:var(--text-secondary)">' + o.score + ' card' + qty + ' · ' + Math.round(o.confidence||0) + '%</span>' +
+        '</div>';
+    });
+    othersHTML = '<div style="margin-top:8px;"><div class="section-label" style="margin-bottom:4px;">All candidates</div>' + rows.join('') + '</div>';
+  }
 
   const adviceHTML = advice ? `
     <div class="advice-block">
