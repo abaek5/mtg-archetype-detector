@@ -10,7 +10,7 @@ echo.
 :: ── Config ────────────────────────────────────────────────────────────────────
 set WATCHER=%~dp0watcher.py
 set NGROK=%USERPROFILE%\Downloads\ngrok-v3-stable-windows-amd64\ngrok.exe
-set NETLIFY=https://sunny-marzipan-2ef5a5.netlify.app
+set NETLIFY=https://abaek5.github.io/mtg-archetype-detector
 
 :: ── Checks ────────────────────────────────────────────────────────────────────
 python --version >nul 2>&1
