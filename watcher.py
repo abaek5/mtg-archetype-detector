@@ -258,10 +258,15 @@ def parse_game_state(msg: dict):
                         if iid in state["instance_map"]:
                             state["instance_map"][iid]["zone_type"] = "Graveyard"
 
-            elif ztype == "ZoneType_Hand" and owner == (state.get("my_seat") or 1):
-                for iid in iids:
-                    if iid in state["instance_map"]:
-                        state["instance_map"][iid]["zone_type"] = "Hand"
+            elif ztype == "ZoneType_Hand":
+                my_seat = state.get("my_seat") or 0
+                if my_seat != 0 and owner == my_seat:
+                    for iid in iids:
+                        if iid in state["instance_map"]:
+                            state["instance_map"][iid]["zone_type"] = "Hand"
+                        else:
+                            # Pre-register so we know it exists in hand
+                            state["instance_map"][iid] = {"zone_type": "Hand", "owner": owner, "name": None}
 
         # Detect game 2/3 within same match, or new match
         ti = gm.get("turnInfo", {})
