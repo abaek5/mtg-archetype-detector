@@ -30,7 +30,10 @@ timeout /t 2 /nobreak >nul
 
 :: ── Step 2: Open site ─────────────────────────────────────────────────────────
 echo [2/2] Opening MTG Detector...
-start "" "chrome.exe" "%SITE%" 2>nul || start "" "%SITE%"
+:: Add timestamp to bust Cloudflare cache
+for /f "tokens=2 delims==" %%i in ('wmic os get localdatetime /value') do set DT=%%i
+set CACHE_KEY=%DT:~0,12%
+start "" "chrome.exe" "%SITE%?v=%CACHE_KEY%" 2>nul || start "" "%SITE%?v=%CACHE_KEY%"
 
 echo.
 echo ============================================
