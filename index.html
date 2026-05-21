@@ -881,13 +881,14 @@ function renderGameState(s) {
   var oppLifeColor = s.opp_life <= 5 ? '#E24B4A' : s.opp_life <= 10 ? '#BA7517' : '#1D9E75';
 
   function creature(bf) { return (bf||[]).filter(function(c) { return (c.types||[]).includes('CardType_Creature'); }); }
+  function allPerms(bf) { return (bf||[]).filter(function(c) { return !(c.types||[]).includes('CardType_Land') || c.token; }); }
   function cardPill(c) {
     return '<div style="font-size:11px;padding:2px 7px;background:var(--bg-secondary);border:0.5px solid var(--border);border-radius:var(--radius-md);margin-bottom:3px;opacity:' + (c.tapped?'0.5':'1') + '">' +
       c.name + (c.power != null ? ' <span style="color:var(--text-secondary)">' + c.power + '/' + c.toughness + '</span>' : '') + '</div>';
   }
 
-  var myCreatures  = creature(s.my_battlefield);
-  var oppCreatures = creature(s.opp_battlefield);
+  var myCreatures  = allPerms(s.my_battlefield);
+  var oppCreatures = allPerms(s.opp_battlefield);
   var myHand = s.my_hand || [];
   var graveyard = s.opp_graveyard || [];
 
@@ -902,10 +903,10 @@ function renderGameState(s) {
     '</div>';
 
   if (oppCreatures.length) {
-    html += '<div class="section-label" style="margin-bottom:4px;">Their board</div>' + oppCreatures.map(cardPill).join('');
+    html += '<div class="section-label" style="margin-bottom:4px;">Their battlefield (' + oppCreatures.length + ')</div>' + oppCreatures.map(cardPill).join('');
   }
   if (myCreatures.length) {
-    html += '<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>' + myCreatures.map(cardPill).join('');
+    html += '<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your battlefield (' + myCreatures.length + ')</div>' + myCreatures.map(cardPill).join('');
   }
   if (myHand.length) {
     html += '<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>' +
