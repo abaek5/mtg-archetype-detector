@@ -127,7 +127,7 @@ def lookup_grp(grp_id: int):
                                 and name not in state["opponent_cards"]):
                             state["opponent_cards"].append(name)
                             state["last_update"] = time.time()
-                            print(f"  [CAST ] Opponent: {name}")
+                            print(f"  [CAST ] Opponent (seat {opp_seat}): {name}  [my_seat={my_seat}]")
         except Exception as e:
             print(f"  [ERR  ] Scryfall lookup grp={grp_id}: {e}")
     threading.Thread(target=_fetch, daemon=True).start()
@@ -243,7 +243,8 @@ def parse_game_state(msg: dict):
                 info  = state["instance_map"].get(iid, {})
                 my_seat = state.get("my_seat") or 1
                 opp_seat = 2 if my_seat == 1 else 1
-                if info.get("owner") != opp_seat:
+                card_owner = info.get("owner")
+                if card_owner != opp_seat:
                     continue
                 grpid  = info.get("grpId")
                 name   = info.get("name") or state["grp_map"].get(grpid)
