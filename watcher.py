@@ -134,15 +134,21 @@ def lookup_grp(grp_id: int):
 
 # ── Parse game state messages ──────────────────────────────────────────────────
 def detect_my_seat(text: str):
-    """Extract our seat number from ClientToGREUIMessage lines."""
+    """Extract our seat number from ClientToGREUIMessage lines (client->server only)."""
     import re
-    m = re.search(r'"systemSeatId"\s*:\s*(\d+)', text)
-    if m:
-        seat = int(m.group(1))
-        with lock:
-            if state["my_seat"] != seat:
-                state["my_seat"] = seat
-                print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+    # Only look in lines that are FROM us TO the server (ClientToGREUIMessage)
+    # These lines contain our systemSeatId
+    for line in text.split("\n"):
+        if "ClientToGREUIMessage" not in line and "clientToMatchServiceMessageType" not in line:
+            continue
+        m = re.search(r'"systemSeatId"\s*:\s*(\d+)', line)
+        if m:
+            seat = int(m.group(1))
+            with lock:
+                if state["my_seat"] is None:
+                    state["my_seat"] = seat
+                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+            break
 
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
