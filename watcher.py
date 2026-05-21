@@ -118,7 +118,9 @@ def lookup_grp(grp_id: int):
                 for iid, info in state["instance_map"].items():
                     if info.get("grpId") == grp_id and not info.get("name"):
                         info["name"] = name
-                    my_seat = state.get("my_seat") or 1
+                    my_seat = state.get("my_seat") or 0
+                    if my_seat == 0:
+                        continue  # seat not detected yet
                     opp_seat = 2 if my_seat == 1 else 1
                     if (info.get("grpId") == grp_id
                             and info.get("owner") == opp_seat
@@ -233,8 +235,10 @@ def parse_game_state(msg: dict):
                         state["instance_map"][iid]["zone_type"] = "Battlefield"
 
             elif ztype == "ZoneType_Graveyard":
-                opp_seat_g = 2 if (state.get("my_seat") or 1) == 1 else 1
-                if owner == opp_seat_g:
+                detected = state.get("my_seat") or 0
+                if detected == 0:
+                    pass  # skip until seat detected
+                elif owner == (2 if detected == 1 else 1):
                     for iid in iids:
                         if iid in state["instance_map"]:
                             state["instance_map"][iid]["zone_type"] = "Graveyard"
@@ -261,7 +265,11 @@ def parse_game_state(msg: dict):
             print(f"  [GAME  ] Game {state['match_game']} started — opponent cards cleared")
 
         # Annotation: ZoneTransfer CastSpell = opponent played a card
-        for ann in gm.get("annotations", []):
+        # Wait until seat is detected before processing
+        if state.get("my_seat", 0) == 0:
+            pass  # seat not yet detected, skip cast detection this frame
+        else:
+          for ann in gm.get("annotations", []):
             if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
                 continue
             details  = {d["key"]: d for d in ann.get("details", [])}
@@ -271,7 +279,7 @@ def parse_game_state(msg: dict):
 
             for iid in ann.get("affectedIds", []):
                 info  = state["instance_map"].get(iid, {})
-                my_seat = state.get("my_seat") or 1
+                my_seat = state["my_seat"]
                 opp_seat = 2 if my_seat == 1 else 1
                 card_owner = info.get("owner")
                 if card_owner != opp_seat:
