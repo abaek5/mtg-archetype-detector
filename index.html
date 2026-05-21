@@ -325,7 +325,7 @@ button:active { transform: scale(0.98); }
     <div class="api-row">
       <label><i class="ti ti-key" style="font-size:13px;vertical-align:-2px;margin-right:3px"></i> Anthropic API key</label>
       <input type="password" id="api-key" placeholder="sk-ant-..." />
-      <span class="api-hint">For AI fallback + advice. <a href="https://console.anthropic.com" target="_blank">Get one here</a>. Stays in browser only.</span>
+      <span class="api-hint">For AI fallback + advice. <a href="https://console.anthropic.com" target="_blank">Get one here</a>. Saved in browser automatically.</span>
     </div>
 
     <div>
@@ -481,7 +481,15 @@ function badgeFor(c) {
 function confClass(pct) { return pct >= 65 ? 'conf-high' : pct >= 35 ? 'conf-mid' : 'conf-low'; }
 function confColor(pct) { return pct >= 65 ? '#1D9E75' : pct >= 35 ? '#7F77DD' : '#888780'; }
 
-function getApiKey() { return (document.getElementById('api-key').value || '').trim(); }
+function getApiKey() {
+  const input = document.getElementById('api-key');
+  const val = (input ? input.value : '').trim();
+  if (val) {
+    localStorage.setItem('mtgApiKey', val);
+    return val;
+  }
+  return localStorage.getItem('mtgApiKey') || '';
+}
 
 async function callClaude(system, userMsg) {
   const key = getApiKey();
@@ -823,6 +831,13 @@ addFeedEntry = function(args) {
     showSideboardPanel(args.archetype);
   }
 };
+
+// Restore saved API key
+(function() {
+  var saved = localStorage.getItem('mtgApiKey') || '';
+  var input = document.getElementById('api-key');
+  if (input && saved) input.value = saved;
+})();
 
 renderFormats();
 renderTags();
