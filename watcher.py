@@ -17,6 +17,7 @@ SCRYFALL_BULK = Path(os.path.expandvars(r"%TEMP%\mtga_cards.json"))
 # ── Shared state ───────────────────────────────────────────────────────────────
 state = {
     "opponent_cards": [],
+    "my_seat": 0,         # 0=unknown, detected from log
     "my_hand": [],
     "my_battlefield": [],
     "opp_battlefield": [],
@@ -132,6 +133,20 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
+def detect_seat_from_header(line: str):
+    """Detect our seat from log header lines like:
+    'MATCHID to Match: ClientToGreuimessage' followed by 'systemSeatId: N'
+    These headers are only generated for OUR messages to the server."""
+    import re
+    if "to Match: ClientToGre" in line or "ClientToMatchServiceMessageType_ClientToGREUIMessage" in line:
+        m = re.search(r'"systemSeatId"\s*:\s*(\d+)', line)
+        if m:
+            seat = int(m.group(1))
+            with lock:
+                if state["my_seat"] == 0 and seat in (1, 2):
+                    state["my_seat"] = seat
+                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
     if not gm:
@@ -226,7 +241,9 @@ def parse_game_state(msg: dict):
 
             for iid in ann.get("affectedIds", []):
                 info  = state["instance_map"].get(iid, {})
-                if info.get("owner") != 2:
+                my_seat = state.get("my_seat") or 1
+                opp_seat = 2 if my_seat == 1 else 1
+                if info.get("owner") != opp_seat:
                     continue
                 grpid  = info.get("grpId")
                 name   = info.get("name") or state["grp_map"].get(grpid)
@@ -253,7 +270,9 @@ def parse_game_state(msg: dict):
     for obj in gm.get("gameObjects", []):
         grpid = obj.get("grpId")
         owner = obj.get("ownerSeatId")
-        if grpid and owner == 2:
+        my_seat = state.get("my_seat") or 1
+        opp_seat = 2 if my_seat == 1 else 1
+        if grpid and owner == opp_seat:
             with lock:
                 if grpid not in state["grp_map"]:
                     lookup_grp(grpid)
@@ -326,6 +345,7 @@ def push_loop():
                 with lock:
                     state["opponent_cards"] = []
                     state["instance_map"] = {}
+                    state["my_seat"] = 0
                     state["last_update"] = time.time()
                     print("  [RESET] New game — cleared by browser")
                 # Clear the reset flag in Firebase
@@ -343,6 +363,8 @@ def push_loop():
 
 # ── Log watcher ────────────────────────────────────────────────────────────────
 def parse_chunk(text: str):
+    for line in text.split("\n"):
+        detect_seat_from_header(line)
     for line in text.split("\n"):
         line = line.strip()
         if not line.startswith("{"):
