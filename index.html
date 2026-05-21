@@ -784,16 +784,17 @@ async function pollFirebase() {
 }
 
 async function resetWatcher() {
-  // Clear local state first so pollFirebase doesn't repopulate
+  // Clear local state immediately
   lastSeenCards = [];
   lastGameState = {};
   opponentCards = [];
   renderTags();
   try {
-    await fetch(`${FB_URL}/state.json`, {
+    // Set reset flag — watcher detects this and clears its memory
+    await fetch(`${FB_URL}/reset_requested.json`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ opponent_cards:[], my_hand:[], my_battlefield:[], opp_battlefield:[], phase:'', turn:0, my_life:20, opp_life:20, last_update:Date.now()/1000 })
+      body: 'true'
     });
   } catch(e) {}
 }
