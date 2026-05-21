@@ -373,15 +373,6 @@ button:active { transform: scale(0.98); }
       </div>
       <div style="font-size:10px;color:var(--text-secondary);">Paste your ngrok URL above, or leave blank for localhost:5000</div>
     </div>
-    <div class="panel" style="padding:10px 12px;">
-      <div class="panel-title" style="margin-bottom:6px;"><i class="ti ti-router"></i> Watcher URL</div>
-      <div style="display:flex;gap:5px;">
-        <input type="text" id="ngrok-url-input" placeholder="https://xxxx.ngrok-free.app" style="flex:1;font-size:11px;" />
-        <button onclick="saveWatcherUrl()" style="padding:0 10px;font-size:11px;">Set</button>
-      </div>
-      <div style="font-size:10px;color:var(--text-secondary);margin-top:4px;">Paste your ngrok URL each session</div>
-    </div>
-
     <div id="watcher-status" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
       <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Enter your ngrok URL above and start watcher.py</span>
     </div>
@@ -763,12 +754,12 @@ function saveWatcherUrl() {
 renderFormats();
 renderTags();
 
-/* ── Arena watcher polling ─────────────────────────────────────── */
-// Watcher URL — set to your ngrok URL when using Netlify
-var WATCHER_URL = localStorage.getItem('mtgWatcherUrl') || '';
-let watcherConnected = false;
+/* ── Firebase realtime sync ────────────────────────────────────── */
+// Firebase config
+const FB_URL = "https://mtg-detector-40285-default-rtdb.firebaseio.com";
 let lastSeenCards = [];
 let lastGameState = {};
+let watcherConnected = false;
 
 function updateWatcherStatus(connected) {
   const el = document.getElementById('watcher-status');
@@ -776,7 +767,7 @@ function updateWatcherStatus(connected) {
   if (connected && !watcherConnected) {
     el.innerHTML = '<span style="color:#1D9E75"><i class="ti ti-wifi" style="font-size:13px;vertical-align:-2px"></i> Arena watcher connected</span>';
   } else if (!connected) {
-    el.innerHTML = '<span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Arena watcher offline — <a href="https://github.com/abaek5/mtg-archetype-detector#setup" target="_blank" style="color:var(--accent-advice)">start watcher.py</a></span>';
+    el.innerHTML = '<span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Arena watcher offline — start watcher.py</span>';
   }
   watcherConnected = connected;
 }
@@ -786,42 +777,41 @@ function renderGameState(s) {
   if (!el) return;
   if (!s.phase && !s.turn) { el.style.display='none'; return; }
   el.style.display = 'block';
-
   const life = (n, cls) => `<span style="font-size:13px;font-weight:500;color:${cls}">${n}</span>`;
   const myLife  = s.my_life  <= 5 ? '#E24B4A' : s.my_life  <= 10 ? '#BA7517' : '#1D9E75';
   const oppLife = s.opp_life <= 5 ? '#E24B4A' : s.opp_life <= 10 ? '#BA7517' : '#1D9E75';
-
-  const creature = bf => bf.filter(c => c.types.includes('CardType_Creature'));
+  const creature = bf => (bf||[]).filter(c => (c.types||[]).includes('CardType_Creature'));
   const cardPill = (c, tapped) => `<div style="font-size:11px;padding:2px 7px;background:var(--bg-secondary);border:0.5px solid var(--border);border-radius:var(--radius-md);margin-bottom:3px;opacity:${tapped?'0.5':'1'}">${c.name}${c.power!=null?` <span style="color:var(--text-secondary)">${c.power}/${c.toughness}</span>`:''}</div>`;
-
-  const myCreatures  = creature(s.my_battlefield  || []);
-  const oppCreatures = creature(s.opp_battlefield || []);
-  const myHand       = s.my_hand || [];
-
+  const myCreatures  = creature(s.my_battlefield);
+  const oppCreatures = creature(s.opp_battlefield);
+  const myHand = s.my_hand || [];
   el.innerHTML = `
     <div class="section-label" style="margin-bottom:6px;">Live game state</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-      <div style="font-size:11px;color:var(--text-secondary)">Turn ${s.turn || '—'}</div>
-      <div style="font-size:11px;color:var(--text-secondary);text-align:right">${s.phase || ''}</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+      <div style="font-size:11px;color:var(--text-secondary)">Turn ${s.turn||'—'}</div>
+      <div style="font-size:11px;color:var(--text-secondary)">${s.phase||''}</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-      <div style="font-size:12px;color:var(--text-secondary)">You ${life(s.my_life ?? 20, myLife)}</div>
-      <div style="font-size:12px;color:var(--text-secondary)">Opp ${life(s.opp_life ?? 20, oppLife)}</div>
+      <div style="font-size:12px;color:var(--text-secondary)">You ${life(s.my_life??20,myLife)}</div>
+      <div style="font-size:12px;color:var(--text-secondary)">Opp ${life(s.opp_life??20,oppLife)}</div>
     </div>
-    ${oppCreatures.length ? `<div class="section-label" style="margin-bottom:4px;">Their board</div>${oppCreatures.map(c=>cardPill(c,c.tapped)).join('')}` : ''}
-    ${myCreatures.length  ? `<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>${myCreatures.map(c=>cardPill(c,c.tapped)).join('')}` : ''}
-    ${myHand.length ? `<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>${myHand.map(n=>`<div style="font-size:11px;padding:2px 7px;background:#E1F5EE;border-radius:var(--radius-md);color:#085041;margin-bottom:3px;">${n}</div>`).join('')}` : ''}
+    ${oppCreatures.length?`<div class="section-label" style="margin-bottom:4px;">Their board</div>${oppCreatures.map(c=>cardPill(c,c.tapped)).join('')}`:''} 
+    ${myCreatures.length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>${myCreatures.map(c=>cardPill(c,c.tapped)).join('')}`:''} 
+    ${myHand.length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>${myHand.map(n=>`<div style="font-size:11px;padding:2px 7px;background:#E1F5EE;border-radius:var(--radius-md);color:#085041;margin-bottom:3px;">${n}</div>`).join('')}`:''} 
   `;
 }
 
-async function pollWatcher() {
+async function pollFirebase() {
   try {
-    const resp = await fetch(WATCHER_URL + "/state", { signal: AbortSignal.timeout(1500), headers: {"ngrok-skip-browser-warning": "1"} });
+    const resp = await fetch(`${FB_URL}/state.json`, { signal: AbortSignal.timeout(3000) });
     if (!resp.ok) throw new Error("bad");
     const data = await resp.json();
-    updateWatcherStatus(true);
+    if (!data) { updateWatcherStatus(false); return; }
 
-    // Auto-add new opponent cards
+    const now = Date.now() / 1000;
+    const age = now - (data.last_update || 0);
+    updateWatcherStatus(age < 30); // offline if no update in 30s
+
     const newCards = (data.opponent_cards || []).filter(c => !lastSeenCards.includes(c));
     for (const card of newCards) {
       if (!opponentCards.includes(card)) {
@@ -832,24 +822,27 @@ async function pollWatcher() {
       }
     }
     lastSeenCards = data.opponent_cards || [];
-
-    // Update game state panel
     renderGameState(data);
     lastGameState = data;
   } catch(e) {
     updateWatcherStatus(false);
-    document.getElementById('game-state-panel') && (document.getElementById('game-state-panel').style.display='none');
   }
 }
 
 async function resetWatcher() {
-  try { await fetch(WATCHER_URL + "/reset", { signal: AbortSignal.timeout(1500), headers: {"ngrok-skip-browser-warning": "1"} }); } catch(e) {}
+  try {
+    await fetch(`${FB_URL}/state.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opponent_cards:[], my_hand:[], my_battlefield:[], opp_battlefield:[], phase:'', turn:0, my_life:20, opp_life:20, last_update:0 })
+    });
+  } catch(e) {}
   lastSeenCards = [];
   lastGameState = {};
 }
 
-setInterval(pollWatcher, 2000);
-pollWatcher();
+setInterval(pollFirebase, 2000);
+pollFirebase();
 </script>
 </body>
 </html>

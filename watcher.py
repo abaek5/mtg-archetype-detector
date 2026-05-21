@@ -7,6 +7,8 @@ import json, os, re, sys, time, threading, urllib.request
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+FIREBASE_URL = "https://mtg-detector-40285-default-rtdb.firebaseio.com"
+
 LOG_PATH = Path(os.path.expandvars(
     r"%APPDATA%\..\LocalLow\Wizards of the Coast\MTGA\Player.log"
 ))
@@ -275,6 +277,38 @@ def rebuild_visible_state():
         state["my_battlefield"]  = my_bf
         state["opp_battlefield"] = opp_bf
 
+# ── Firebase sync ─────────────────────────────────────────────────────────────
+def push_to_firebase():
+    """Push current state to Firebase Realtime Database."""
+    try:
+        with lock:
+            payload = json.dumps({
+                "opponent_cards":  state["opponent_cards"],
+                "my_hand":         state["my_hand"],
+                "my_battlefield":  state["my_battlefield"],
+                "opp_battlefield": state["opp_battlefield"],
+                "phase":           state["phase"],
+                "turn":            state["turn"],
+                "my_life":         state["my_life"],
+                "opp_life":        state["opp_life"],
+                "last_update":     state["last_update"],
+            }).encode()
+        req = urllib.request.Request(
+            f"{FIREBASE_URL}/state.json",
+            data=payload,
+            method="PUT",
+            headers={"Content-Type": "application/json", "User-Agent": "MTGArchetypeDetector/1.0"}
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"  [WARN] Firebase sync failed: {e}")
+
+def push_loop():
+    """Push to Firebase every 2 seconds."""
+    while True:
+        push_to_firebase()
+        time.sleep(2)
+
 # ── Log watcher ────────────────────────────────────────────────────────────────
 def parse_chunk(text: str):
     for line in text.split("\n"):
@@ -392,6 +426,7 @@ if __name__ == "__main__":
         state["grp_map"] = grp
 
     threading.Thread(target=watch_log, daemon=True).start()
+    threading.Thread(target=push_loop, daemon=True).start()
 
     try:
         # Try 127.0.0.1 explicitly — avoids IPv6/firewall issues on Windows
