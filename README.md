@@ -47,3 +47,4 @@ Archetypes are defined in the `ALL_ARCHETYPES` array in `index.html`. Each entry
 - [Tabler Icons](https://tabler-icons.io) for iconography
 - [Anthropic API](https://docs.anthropic.com) for AI analysis and gameplay advice
 # Reset fix
+# reset fix
