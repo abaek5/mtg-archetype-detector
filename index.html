@@ -862,6 +862,7 @@ function renderGameState(s) {
     ${oppCreatures.length?`<div class="section-label" style="margin-bottom:4px;">Their board</div>${oppCreatures.map(c=>cardPill(c,c.tapped)).join('')}`:''} 
     ${myCreatures.length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your board</div>${myCreatures.map(c=>cardPill(c,c.tapped)).join('')}`:''} 
     ${myHand.length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Your hand</div>${myHand.map(n=>`<div style="font-size:11px;padding:2px 7px;background:#E1F5EE;border-radius:var(--radius-md);color:#085041;margin-bottom:3px;">${n}</div>`).join('')}`:''} 
+    ${(s.opp_graveyard||[]).length?`<div class="section-label" style="margin-top:6px;margin-bottom:4px;">Their graveyard (${s.opp_graveyard.length})</div><div style="font-size:10px;color:var(--text-secondary);max-height:80px;overflow-y:auto;">${s.opp_graveyard.slice(0,15).join(', ')}${s.opp_graveyard.length>15?\` +${s.opp_graveyard.length-15} more\`:''}</div>`:''}
   `;
 }
 
@@ -872,7 +873,9 @@ async function pollFirebase() {
     const data = await resp.json();
     if (!data) { updateWatcherStatus(false); return; }
 
-    const newCards = (data.opponent_cards || []).filter(c => !lastSeenCards.includes(c));
+    // Combine cast cards + graveyard cards for detection
+    const allOppCards = [...new Set([...(data.opponent_cards||[]), ...(data.opp_graveyard||[])])];
+    const newCards = allOppCards.filter(c => !lastSeenCards.includes(c));
     for (const card of newCards) {
       if (!opponentCards.includes(card)) {
         opponentCards.push(card);
@@ -881,7 +884,7 @@ async function pollFirebase() {
         await new Promise(r => setTimeout(r, 300));
       }
     }
-    lastSeenCards = data.opponent_cards || [];
+    lastSeenCards = allOppCards;
     renderGameState(data);
     lastGameState = data;
     // Show connected if we got valid data regardless of timestamp age

@@ -17,6 +17,7 @@ SCRYFALL_BULK = Path(os.path.expandvars(r"%TEMP%\mtga_cards.json"))
 # ── Shared state ───────────────────────────────────────────────────────────────
 state = {
     "opponent_cards": [],
+    "opp_graveyard": [],    # cards milled/killed into opponent graveyard
     "match_game": 1,      # current game in match (1, 2, 3)
     "my_seat": 0,         # 0=unknown, detected from log
     "_in_client_msg": False,
@@ -231,6 +232,13 @@ def parse_game_state(msg: dict):
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Battlefield"
 
+            elif ztype == "ZoneType_Graveyard":
+                opp_seat_g = 2 if (state.get("my_seat") or 1) == 1 else 1
+                if owner == opp_seat_g:
+                    for iid in iids:
+                        if iid in state["instance_map"]:
+                            state["instance_map"][iid]["zone_type"] = "Graveyard"
+
             elif ztype == "ZoneType_Hand" and owner == (state.get("my_seat") or 1):
                 for iid in iids:
                     if iid in state["instance_map"]:
@@ -244,6 +252,7 @@ def parse_game_state(msg: dict):
             if state["match_game"] > 3:
                 state["match_game"] = 1
             state["opponent_cards"] = []
+            state["opp_graveyard"] = []
             state["instance_map"] = {}
             state["my_seat"] = 0
             state["my_life"] = 20
@@ -314,6 +323,9 @@ def rebuild_visible_state():
             opp_seat = 2 if my_seat == 1 else 1
             if zt == "Hand" and owner == my_seat and not is_token:
                 my_hand.append(name)
+            elif zt == "Graveyard" and owner == opp_seat and not is_token:
+                if name not in state["opp_graveyard"] and name not in SKIP_NAMES:
+                    state["opp_graveyard"].append(name)
             elif zt == "Battlefield":
                 entry = {
                     "name":      name + (" [Token]" if is_token else ""),
@@ -337,7 +349,9 @@ def push_to_firebase():
     try:
         with lock:
             payload = json.dumps({
-                "opponent_cards":  state["opponent_cards"],
+                # Merge cast cards + graveyard for richer archetype data
+                "opponent_cards":  list(dict.fromkeys(state["opponent_cards"] + state["opp_graveyard"])),
+                "opp_graveyard":   state["opp_graveyard"],
                 "my_hand":         state["my_hand"],
                 "my_battlefield":  state["my_battlefield"],
                 "opp_battlefield": state["opp_battlefield"],
@@ -372,6 +386,7 @@ def push_loop():
             if data is True:
                 with lock:
                     state["opponent_cards"] = []
+                    state["opp_graveyard"] = []
                     state["instance_map"] = {}
                     state["my_seat"] = 0
                     state["last_update"] = time.time()
