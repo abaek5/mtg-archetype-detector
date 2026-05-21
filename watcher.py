@@ -429,16 +429,11 @@ if __name__ == "__main__":
     threading.Thread(target=push_loop, daemon=True).start()
 
     try:
-        # Try 127.0.0.1 explicitly — avoids IPv6/firewall issues on Windows
-        for port in [5000, 8080, 8888]:
-            try:
-                server = HTTPServer(("127.0.0.1", port), Handler)
-                print(f"Server started — open this in Chrome:  http://127.0.0.1:{port}")
-                print(f"Also try:  http://localhost:{port}\n")
-                server.serve_forever()
-                break
-            except OSError as e:
-                print(f"Port {port} unavailable ({e}), trying next...")
+        print("Pushing game state to Firebase...")
+        print(f"Open: https://abaek5.github.io/mtg-archetype-detector\n")
+        # Keep main thread alive
+        while True:
+            time.sleep(60)
     except KeyboardInterrupt:
         print("\nStopped.")
 
