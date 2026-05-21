@@ -987,6 +987,7 @@ var lastSeenCards = [];
 var matchState = { game: 1, archetypeConfirmed: null, sideboardAdvice: null };
 var lastGameState = {};
 var watcherConnected = false;
+var pausePollUntil = 0;
 
 function updateWatcherStatus(connected) {
   const el = document.getElementById('watcher-status');
@@ -1051,6 +1052,8 @@ function renderGameState(s) {
 }
 
 async function pollFirebase() {
+  // Pause polling briefly after New Game to let watcher reset
+  if (Date.now() < pausePollUntil) return;
   try {
     const resp = await fetch(`${FB_URL}/state.json`, { signal: AbortSignal.timeout(3000) });
     if (!resp.ok) throw new Error("bad");
@@ -1079,6 +1082,8 @@ async function pollFirebase() {
 }
 
 async function resetWatcher() {
+  // Pause polling for 8 seconds to let watcher process the reset
+  pausePollUntil = Date.now() + 8000;
   // Clear local state immediately
   lastSeenCards = [];
   lastGameState = {};
