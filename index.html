@@ -705,10 +705,7 @@ function setWatcherUrl() {
   pollWatcher();
 }
 
-// Restore saved URL on load
-(function() {
-  if (input && WATCHER_URL !== 'http://127.0.0.1:5000') input.value = WATCHER_URL;
-})();
+
 
 renderFormats();
 renderTags();
