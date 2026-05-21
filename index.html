@@ -415,6 +415,25 @@ button:active { transform: scale(0.98); }
     </div>
   </div>
 
+  <!-- ── PLAY ADVISOR ── -->
+  <div id="play-advisor-panel" style="display:none;background:var(--bg);border-bottom:0.5px solid var(--border);padding:12px 16px;max-height:220px;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#1D9E75;"></div>
+        <span style="font-size:14px;font-weight:500;color:var(--text);">Play Advisor</span>
+        <span id="advisor-phase" style="font-size:11px;color:var(--text-secondary);background:var(--bg-secondary);padding:2px 8px;border-radius:999px;"></span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span id="advisor-status" style="font-size:10px;color:var(--text-secondary);"></span>
+        <button onclick="triggerPlayAdvice()" style="font-size:11px;padding:3px 10px;"><i class="ti ti-refresh"></i> Refresh</button>
+        <button onclick="document.getElementById('play-advisor-panel').style.display='none'" style="font-size:11px;padding:3px 8px;color:var(--text-secondary);"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div id="play-advice-content" style="font-size:12px;color:var(--text-secondary);">
+      Waiting for game state...
+    </div>
+  </div>
+
   <!-- ── FEED ── -->
   <div class="feed" id="feed" style="flex:1;overflow-y:auto;">
     <div class="feed-empty" id="feed-empty">
@@ -976,6 +995,85 @@ function deleteDeck() {
   if (input && saved) input.value = saved;
 })();
 
+// ── Play Advisor ──────────────────────────────────────────────────────────────
+var lastAdvisorPhase = '';
+var lastAdvisorTurn = 0;
+var advisorThinking = false;
+
+async function triggerPlayAdvice() {
+  const key = getApiKey();
+  if (!key || !lastGameState.my_hand || !lastGameState.my_hand.length) return;
+  if (advisorThinking) return;
+
+  advisorThinking = true;
+  const statusEl = document.getElementById('advisor-status');
+  const contentEl = document.getElementById('play-advice-content');
+  if (statusEl) statusEl.textContent = 'Thinking...';
+
+  const gs = lastGameState;
+  const myHand = (gs.my_hand || []).join(', ');
+  const myBoard = (gs.my_battlefield || []).map(function(c) {
+    return c.name + (c.power != null ? ' (' + c.power + '/' + c.toughness + (c.tapped ? ', tapped' : '') + ')' : '');
+  }).join(', ');
+  const oppBoard = (gs.opp_battlefield || []).map(function(c) {
+    return c.name + (c.power != null ? ' (' + c.power + '/' + c.toughness + (c.tapped ? ', tapped' : '') + ')' : '');
+  }).join(', ');
+  const phase = gs.phase || '';
+  const turn = gs.turn || 0;
+  const myLife = gs.my_life || 20;
+  const oppLife = gs.opp_life || 20;
+  const archetype = matchState.archetypeConfirmed ? matchState.archetypeConfirmed.name : 'Unknown';
+
+  try {
+    const advice = await callClaude(
+      'You are an expert MTG play advisor. Given the game state, recommend the optimal plays for this turn. Be concise and specific — name exact cards. Respond ONLY with valid JSON: {main_phase: string, combat: string, key_consideration: string}',
+      'Turn ' + turn + ', ' + phase + '. My life: ' + myLife + ', Opp life: ' + oppLife + '. Opponent archetype: ' + archetype + '. My hand: ' + myHand + '. My battlefield: ' + (myBoard||'empty') + '. Opponent battlefield: ' + (oppBoard||'empty') + '. Opponent cards seen: ' + opponentCards.slice(0,8).join(', ')
+    );
+
+    if (contentEl && advice) {
+      contentEl.innerHTML =
+        '<div style="margin-bottom:8px;">' +
+          '<div style="font-size:11px;font-weight:500;color:var(--text);margin-bottom:3px;"><i class="ti ti-wand" style="font-size:11px"></i> Main Phase</div>' +
+          '<div style="color:var(--text-secondary)">' + (advice.main_phase||'') + '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:8px;">' +
+          '<div style="font-size:11px;font-weight:500;color:var(--text);margin-bottom:3px;"><i class="ti ti-sword" style="font-size:11px"></i> Combat</div>' +
+          '<div style="color:var(--text-secondary)">' + (advice.combat||'') + '</div>' +
+        '</div>' +
+        (advice.key_consideration ? '<div style="padding:6px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);font-size:11px;color:var(--text-secondary)"><strong style="color:var(--text)">Key:</strong> ' + advice.key_consideration + '</div>' : '');
+    }
+    if (statusEl) statusEl.textContent = 'Turn ' + turn;
+  } catch(e) {
+    if (contentEl) contentEl.innerHTML = '<span style="color:var(--text-secondary)">Could not generate advice.</span>';
+  }
+
+  advisorThinking = false;
+}
+
+function updatePlayAdvisor(gameState) {
+  if (!gameState || !gameState.my_hand || !gameState.my_hand.length) return;
+  if (!getApiKey()) return;
+
+  const panel = document.getElementById('play-advisor-panel');
+  const phaseEl = document.getElementById('advisor-phase');
+
+  // Show panel once we have hand data
+  if (panel) panel.style.display = 'block';
+  if (phaseEl) phaseEl.textContent = gameState.phase || '';
+
+  // Fire advice when turn changes or phase becomes Main Phase 1
+  const isMyTurn = gameState.phase && (gameState.phase.includes('Main Phase 1') || gameState.phase.includes('Main Phase 2') || gameState.phase.includes('Combat'));
+  const turnChanged = gameState.turn !== lastAdvisorTurn;
+  const phaseChanged = gameState.phase !== lastAdvisorPhase;
+
+  if (turnChanged || (phaseChanged && isMyTurn)) {
+    lastAdvisorTurn = gameState.turn;
+    lastAdvisorPhase = gameState.phase;
+    // Small delay to let game state stabilize
+    setTimeout(triggerPlayAdvice, 1500);
+  }
+}
+
 renderFormats();
 renderTags();
 renderDeckSelector();
@@ -1073,6 +1171,7 @@ async function pollFirebase() {
     }
     lastSeenCards = allOppCards;
     renderGameState(data);
+    updatePlayAdvisor(data);
     lastGameState = data;
     // Show connected if we got valid data regardless of timestamp age
     updateWatcherStatus(true);
