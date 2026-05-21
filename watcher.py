@@ -163,13 +163,16 @@ def parse_game_state(msg: dict):
         return
 
     with lock:
-        # Life totals
+        # Life totals — use detected seat
+        my_seat = state.get("my_seat") or 1
         for p in gm.get("players", []):
             seat = p.get("systemSeatNumber")
             life = p.get("lifeTotal")
-            if seat == 1 and life is not None:
+            if life is None:
+                continue
+            if seat == my_seat:
                 state["my_life"] = life
-            elif seat == 2 and life is not None:
+            else:
                 state["opp_life"] = life
 
         # Phase / step
@@ -227,7 +230,7 @@ def parse_game_state(msg: dict):
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Battlefield"
 
-            elif ztype == "ZoneType_Hand" and owner == 1:
+            elif ztype == "ZoneType_Hand" and owner == (state.get("my_seat") or 1):
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Hand"
@@ -297,7 +300,9 @@ def rebuild_visible_state():
             owner = info.get("owner")
             if not name or info.get("token"):
                 continue
-            if zt == "Hand" and owner == 1:
+            my_seat = state.get("my_seat") or 1
+            opp_seat = 2 if my_seat == 1 else 1
+            if zt == "Hand" and owner == my_seat:
                 my_hand.append(name)
             elif zt == "Battlefield":
                 entry = {
@@ -307,9 +312,9 @@ def rebuild_visible_state():
                     "tapped":    info.get("tapped", False),
                     "types":     info.get("cardTypes", []),
                 }
-                if owner == 1:
+                if owner == my_seat:
                     my_bf.append(entry)
-                elif owner == 2:
+                elif owner == opp_seat:
                     opp_bf.append(entry)
         state["my_hand"]         = my_hand
         state["my_battlefield"]  = my_bf
