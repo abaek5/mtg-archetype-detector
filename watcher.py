@@ -327,6 +327,7 @@ def rebuild_visible_state():
             elif zt == "Graveyard" and owner == opp_seat and not is_token:
                 if name not in state["opp_graveyard"] and name not in SKIP_NAMES:
                     state["opp_graveyard"].append(name)
+                    print(f"  [GRAVE] Opponent graveyard: {name}")
             elif zt == "Battlefield":
                 entry = {
                     "name":      name + (" [Token]" if is_token else ""),
