@@ -461,15 +461,19 @@ function getArchetypes() {
 }
 
 function scoreArchetype(a, cardList) {
-  const lc = cardList.map(c => c.toLowerCase().trim());
+  // Deduplicate card list first — same card in graveyard + cast shouldn't score twice
+  const unique = [...new Set(cardList.map(c => c.toLowerCase().trim()))];
   let score = 0, matches = [];
-  for (const card of lc) {
+  for (const card of unique) {
     for (const ac of a.cards) {
-      if (ac.includes(card) || card.includes(ac.split(' ')[0])) { score++; if (!matches.includes(ac)) matches.push(ac); break; }
+      if (ac.includes(card) || card.includes(ac.split(' ')[0])) {
+        score++;
+        if (!matches.includes(ac)) matches.push(ac);
+        break;
+      }
     }
   }
-  const baseConf = Math.min(100, Math.round((score / Math.max(lc.length,1)) * 100));
-  // Tier bonus: T1 +5%, T2 +0%, T3 -5% — tiebreaker only, not dominant
+  const baseConf = Math.min(100, Math.round((score / Math.max(unique.length,1)) * 100));
   const tierBonus = a.tier === 1 ? 5 : a.tier === 3 ? -5 : 0;
   const confidence = Math.min(100, Math.max(0, baseConf + tierBonus));
   return { score, matches, confidence };
