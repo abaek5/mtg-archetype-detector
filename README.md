@@ -48,3 +48,4 @@ Archetypes are defined in the `ALL_ARCHETYPES` array in `index.html`. Each entry
 - [Anthropic API](https://docs.anthropic.com) for AI analysis and gameplay advice
 # Reset fix
 # reset fix
+# fix reset_hold_until scope
