@@ -358,6 +358,7 @@ button:active { transform: scale(0.98); }
       <div style="display:flex;gap:5px;margin-top:6px;">
         <input type="text" id="deck-name-input" placeholder="Deck name..." style="flex:1;font-size:11px;height:28px;" />
         <button onclick="saveDeck()" style="padding:0 8px;font-size:11px;" title="Save deck"><i class="ti ti-device-floppy"></i></button>
+        <button onclick="clearDeckInput()" style="padding:0 8px;font-size:11px;color:var(--text-secondary);" title="Clear textarea"><i class="ti ti-x"></i></button>
         <button onclick="parseDeck()" style="padding:0 8px;font-size:11px;" title="Load without saving"><i class="ti ti-check"></i></button>
       </div>
       <div id="deck-status" style="margin-top:5px;"></div>
@@ -882,12 +883,19 @@ function saveDeck() {
   lib[name] = raw;
   saveDeckLibrary(lib);
   renderDeckSelector();
-  // Select the saved deck
   document.getElementById('deck-selector').value = name;
   nameInput.value = '';
+  // Clear textarea so next deck can be pasted fresh
+  document.getElementById('my-deck-input').value = '';
   parseDeck();
   const el = document.getElementById('deck-status');
-  el.innerHTML = '<div class="deck-loaded"><i class="ti ti-device-floppy" style="font-size:13px"></i> Saved as "' + name + '"</div>';
+  el.innerHTML = '<div class="deck-loaded"><i class="ti ti-device-floppy" style="font-size:13px"></i> Saved "' + name + '" — paste next deck or select from dropdown</div>';
+}
+
+function clearDeckInput() {
+  document.getElementById('my-deck-input').value = '';
+  document.getElementById('deck-name-input').value = '';
+  document.getElementById('deck-status').innerHTML = '';
 }
 
 function loadSelectedDeck() {
