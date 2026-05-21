@@ -802,9 +802,18 @@ function newGame() {
   // Clear game state panel
   const gs = document.getElementById('game-state-panel');
   if (gs) gs.style.display = 'none';
+  // Clear sideboard panel
+  const sb = document.getElementById('sideboard-panel');
+  if (sb) sb.style.display = 'none';
+  // Clear play advisor
+  const pa = document.getElementById('play-advisor-panel');
+  if (pa) pa.style.display = 'none';
   // Clear timeline
   feedEntries = [];
   updateTimeline();
+  matchState = { game: 1, archetypeConfirmed: null, sideboardAdvice: null };
+  lastAdvisorPhase = '';
+  lastAdvisorTurn = 0;
 }
 
 function setWatcherUrl() {
@@ -1182,7 +1191,7 @@ async function pollFirebase() {
 
 async function resetWatcher() {
   // Pause polling for 8 seconds to let watcher process the reset
-  pausePollUntil = Date.now() + 8000;
+  pausePollUntil = Date.now() + 15000;
   // Clear local state immediately
   lastSeenCards = [];
   lastGameState = {};
