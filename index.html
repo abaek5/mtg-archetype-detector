@@ -511,7 +511,7 @@ async function callClaude(system, userMsg) {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true"
     },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system, messages: [{role:"user",content:userMsg}] })
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system, messages: [{role:"user",content:userMsg}] })
   });
   const data = await resp.json();
   const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
