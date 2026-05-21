@@ -434,13 +434,20 @@ def push_loop():
                     state["last_update"] = time.time()
                     print("  [RESET] New game — cleared by browser")
                 # Clear the reset flag in Firebase
-                clear_req = urllib.request.Request(
-                    f"{FIREBASE_URL}/reset_requested.json",
-                    data=b"false",
-                    method="PUT",
-                    headers={"Content-Type": "application/json", "User-Agent": "MTGArchetypeDetector/1.0"}
-                )
-                urllib.request.urlopen(clear_req, timeout=3)
+                try:
+                    clear_req = urllib.request.Request(
+                        f"{FIREBASE_URL}/reset_requested.json",
+                        data=b"false",
+                        method="PUT",
+                        headers={"Content-Type": "application/json", "User-Agent": "MTGArchetypeDetector/1.0"}
+                    )
+                    urllib.request.urlopen(clear_req, timeout=3)
+                except Exception:
+                    pass
+                push_to_firebase()  # push empty state
+                reset_hold_until = time.time() + 12  # hold 12 seconds
+                time.sleep(2)
+                continue
         except Exception:
             pass
         sync_battlefield_to_opponent_cards()
