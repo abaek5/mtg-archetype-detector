@@ -134,21 +134,12 @@ def lookup_grp(grp_id: int):
 
 # ── Parse game state messages ──────────────────────────────────────────────────
 def detect_my_seat(text: str):
-    """Detect our seat from greToClientMessages systemSeatIds (always contains only our seat)."""
-    import re
+    """Arena always sends greToClientMessages with systemSeatIds=[1] for local player.
+    So we are always seat 1, opponent is always seat 2."""
     with lock:
-        if state["my_seat"] is not None:
-            return  # already detected, don't change
-    # systemSeatIds in greToClientMessages is always [our_seat]
-    # Find blocks where systemSeatIds has exactly one value
-    for m in re.finditer(r'"systemSeatIds"\s*:\s*\[\s*(\d+)\s*\]', text):
-        seat = int(m.group(1))
-        if seat in (1, 2):
-            with lock:
-                if state["my_seat"] is None:
-                    state["my_seat"] = seat
-                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
-            return
+        if state["my_seat"] is None:
+            state["my_seat"] = 1
+            print("  [SEAT ] You are seat 1, opponent is seat 2")
 
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
@@ -236,9 +227,7 @@ def parse_game_state(msg: dict):
 
             for iid in ann.get("affectedIds", []):
                 info  = state["instance_map"].get(iid, {})
-                my_seat = state.get("my_seat") or 1
-                opp_seat = 3 - my_seat
-                if info.get("owner") != opp_seat:
+                if info.get("owner") != 2:
                     continue
                 grpid  = info.get("grpId")
                 name   = info.get("name") or state["grp_map"].get(grpid)
@@ -265,9 +254,7 @@ def parse_game_state(msg: dict):
     for obj in gm.get("gameObjects", []):
         grpid = obj.get("grpId")
         owner = obj.get("ownerSeatId")
-        my_seat = state.get("my_seat") or 1
-        opp_seat = 3 - my_seat
-        if grpid and owner == opp_seat:
+        if grpid and owner == 2:
             with lock:
                 if grpid not in state["grp_map"]:
                     lookup_grp(grpid)
