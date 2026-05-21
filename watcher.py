@@ -360,6 +360,31 @@ def rebuild_visible_state():
         state["opp_battlefield"] = opp_bf
 
 # ── Firebase sync ─────────────────────────────────────────────────────────────
+def sync_battlefield_to_opponent_cards():
+    """Add any opponent battlefield cards to opponent_cards for archetype detection."""
+    with lock:
+        my_seat = state.get("my_seat") or 0
+        if my_seat == 0:
+            return
+        opp_seat = 2 if my_seat == 1 else 1
+        for iid, info in state["instance_map"].items():
+            if info.get("owner") != opp_seat:
+                continue
+            if info.get("zone_type") != "Battlefield":
+                continue
+            name = info.get("name")
+            if not name or name in SKIP_NAMES:
+                continue
+            if info.get("token"):
+                continue
+            ctypes = info.get("cardTypes", [])
+            if "CardType_Land" in ctypes:
+                continue
+            if name not in state["opponent_cards"]:
+                state["opponent_cards"].append(name)
+                state["last_update"] = time.time()
+                print(f"  [FIELD] Opponent battlefield: {name}")
+
 def push_to_firebase():
     """Push current state to Firebase Realtime Database."""
     try:
@@ -417,6 +442,7 @@ def push_loop():
                 urllib.request.urlopen(clear_req, timeout=3)
         except Exception:
             pass
+        sync_battlefield_to_opponent_cards()
         push_to_firebase()
         time.sleep(2)
 
