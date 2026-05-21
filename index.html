@@ -695,7 +695,16 @@ function clearFeed() {
   feed.innerHTML = '<div class="feed-empty" id="feed-empty"><i class="ti ti-cards" style="font-size:32px;display:block;margin-bottom:8px;color:var(--text-secondary)"></i>Add opponent cards to start reading their deck</div>';
   updateTimeline();
 }
-function newGame() { clearAll(); clearFeed(); }
+function newGame() {
+  clearAll();
+  clearFeed();
+  // Clear game state panel
+  const gs = document.getElementById('game-state-panel');
+  if (gs) gs.style.display = 'none';
+  // Clear timeline
+  feedEntries = [];
+  updateTimeline();
+}
 
 function setWatcherUrl() {
   const val = input.value.trim().replace(/\/+$/, ''); // strip trailing slash
