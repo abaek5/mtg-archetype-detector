@@ -209,12 +209,15 @@ def parse_game_state(msg: dict):
 
             name = state["grp_map"].get(grpid)
             existing = state["instance_map"].get(iid, {})
+            # Infer zone_type from zoneId using known zone mappings
+            known_zones = state.get("zone_map", {})
+            inferred_zone = known_zones.get(zone, existing.get("zone_type", ""))
             state["instance_map"][iid] = {
                 "grpId":     grpid,
                 "name":      name,
                 "owner":     owner,
                 "zoneId":    zone,
-                "zone_type": existing.get("zone_type", ""),
+                "zone_type": inferred_zone,
                 "tapped":    tapped,
                 "power":     power,
                 "toughness": tough,
@@ -228,11 +231,22 @@ def parse_game_state(msg: dict):
             ztype = z.get("type", "")
             owner = z.get("ownerSeatId")
             iids  = z.get("objectInstanceIds", [])
+            zid   = z.get("zoneId")
+
+            # Build zone_map: zoneId -> zone_type string
+            if zid and ztype:
+                zname = ztype.replace("ZoneType_", "")
+                if "zone_map" not in state:
+                    state["zone_map"] = {}
+                state["zone_map"][zid] = zname
 
             if ztype == "ZoneType_Battlefield":
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Battlefield"
+                    elif iid:
+                        # Pre-register unknown instances as being on battlefield
+                        state["instance_map"][iid] = {"zone_type": "Battlefield", "owner": owner}
 
             elif ztype == "ZoneType_Graveyard":
                 detected = state.get("my_seat") or 0
