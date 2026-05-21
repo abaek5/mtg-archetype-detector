@@ -312,8 +312,24 @@ def push_to_firebase():
         print(f"  [WARN] Firebase sync failed: {e}")
 
 def push_loop():
-    """Push to Firebase every 2 seconds."""
+    """Push to Firebase every 2 seconds. Also check for reset signal."""
     while True:
+        # Check if Firebase was reset by the browser (New game button)
+        try:
+            req = urllib.request.Request(
+                f"{FIREBASE_URL}/state/opponent_cards.json",
+                headers={"User-Agent": "MTGArchetypeDetector/1.0"}
+            )
+            resp = urllib.request.urlopen(req, timeout=3)
+            data = json.loads(resp.read())
+            if data is None or data == []:
+                with lock:
+                    if state["opponent_cards"]:
+                        state["opponent_cards"] = []
+                        state["instance_map"] = {}
+                        print("  [RESET] Cleared by browser — new game")
+        except Exception:
+            pass
         push_to_firebase()
         time.sleep(2)
 
