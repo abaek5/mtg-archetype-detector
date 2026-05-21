@@ -132,6 +132,10 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
+def parse_game_state(msg: dict):
+    gm = msg.get("gameStateMessage", {})
+    if not gm:
+        return
 
     with lock:
         # Life totals
