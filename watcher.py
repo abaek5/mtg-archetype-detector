@@ -265,47 +265,36 @@ def parse_game_state(msg: dict):
             print(f"  [GAME  ] Game {state['match_game']} started — opponent cards cleared")
 
         # Annotation: ZoneTransfer CastSpell = opponent played a card
-        # Wait until seat is detected before processing
-        if state.get("my_seat", 0) == 0:
-            pass  # seat not yet detected, skip cast detection this frame
-        else:
-          for ann in gm.get("annotations", []):
-            if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
-                continue
-            details  = {d["key"]: d for d in ann.get("details", [])}
-            category = details.get("category", {}).get("valueString", [""])[0]
-            if category != "CastSpell":
-                continue
-
-            for iid in ann.get("affectedIds", []):
-                info  = state["instance_map"].get(iid, {})
-                my_seat = state["my_seat"]
-                opp_seat = 2 if my_seat == 1 else 1
-                card_owner = info.get("owner")
-                if card_owner != opp_seat:
-                    # Debug: show skipped cards
-                    skipped_name = info.get("name") or state["grp_map"].get(info.get("grpId",""), "?")
-                    if skipped_name and skipped_name not in SKIP_NAMES:
-                        print(f"  [SKIP ] seat={card_owner} (mine={my_seat}) -> {skipped_name}")
+        if state.get("my_seat", 0) != 0:
+            my_seat = state["my_seat"]
+            opp_seat = 2 if my_seat == 1 else 1
+            for ann in gm.get("annotations", []):
+                if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
                     continue
-                grpid  = info.get("grpId")
-                name   = info.get("name") or state["grp_map"].get(grpid)
-                ctypes = info.get("cardTypes", [])
-                token  = info.get("token", False)
-
-                if "CardType_Land" in ctypes or token:
+                details  = {d["key"]: d for d in ann.get("details", [])}
+                category = details.get("category", {}).get("valueString", [""])[0]
+                if category != "CastSpell":
                     continue
-
-                if name and name not in SKIP_NAMES:
-                    if name not in state["opponent_cards"]:
-                        state["opponent_cards"].append(name)
-                        state["last_update"] = time.time()
-                        print(f"  [CAST ] Opponent: {name}")
-                elif grpid:
-                    # Name not resolved yet — mark pending and look up async
-                    print(f"  [QUEUE] grp={grpid} not resolved yet, looking up...")
-                    info["pending_add"] = True
-                    state["instance_map"][iid] = info
+                for iid in ann.get("affectedIds", []):
+                    info  = state["instance_map"].get(iid, {})
+                    card_owner = info.get("owner")
+                    if card_owner != opp_seat:
+                        continue
+                    grpid  = info.get("grpId")
+                    name   = info.get("name") or state["grp_map"].get(grpid)
+                    ctypes = info.get("cardTypes", [])
+                    token  = info.get("token", False)
+                    if "CardType_Land" in ctypes or token:
+                        continue
+                    if name and name not in SKIP_NAMES:
+                        if name not in state["opponent_cards"]:
+                            state["opponent_cards"].append(name)
+                            state["last_update"] = time.time()
+                            print(f"  [CAST ] Opponent (seat {opp_seat}): {name}")
+                    elif grpid:
+                        print(f"  [QUEUE] grp={grpid} not resolved yet, looking up...")
+                        info["pending_add"] = True
+                        state["instance_map"][iid] = info
 
         state["last_update"] = time.time()
 
