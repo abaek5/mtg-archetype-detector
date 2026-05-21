@@ -283,6 +283,10 @@ def parse_game_state(msg: dict):
                 opp_seat = 2 if my_seat == 1 else 1
                 card_owner = info.get("owner")
                 if card_owner != opp_seat:
+                    # Debug: show skipped cards
+                    skipped_name = info.get("name") or state["grp_map"].get(info.get("grpId",""), "?")
+                    if skipped_name and skipped_name not in SKIP_NAMES:
+                        print(f"  [SKIP ] seat={card_owner} (mine={my_seat}) -> {skipped_name}")
                     continue
                 grpid  = info.get("grpId")
                 name   = info.get("name") or state["grp_map"].get(grpid)
