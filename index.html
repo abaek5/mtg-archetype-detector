@@ -1060,6 +1060,19 @@ async function resetWatcher() {
   } catch(e) {}
 }
 
+// Auto-clear stale match data on page load
+(async function() {
+  try {
+    const resp = await fetch(FB_URL + '/state/last_update.json');
+    const lastUpdate = await resp.json();
+    const age = Date.now()/1000 - (lastUpdate || 0);
+    if (age > 1800) { // older than 30 minutes
+      console.log('Stale match data detected, clearing...');
+      await resetWatcher();
+    }
+  } catch(e) {}
+})();
+
 setInterval(pollFirebase, 2000);
 pollFirebase();
 </script>
