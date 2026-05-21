@@ -931,14 +931,20 @@ async function resetWatcher() {
   opponentCards = [];
   renderTags();
   try {
-    // Clear Firebase state AND set reset flag for watcher
+    // Write empty state directly AND set reset flag
+    const emptyState = JSON.stringify({
+      opponent_cards: [], opp_graveyard: [], my_hand: [],
+      my_battlefield: [], opp_battlefield: [],
+      phase: '', turn: 0, my_life: 20, opp_life: 20,
+      last_update: Date.now()/1000, match_game: 1
+    });
     await Promise.all([
-      fetch(`${FB_URL}/state/opponent_cards.json`, {
+      fetch(FB_URL + '/state.json', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: 'null'
+        body: emptyState
       }),
-      fetch(`${FB_URL}/reset_requested.json`, {
+      fetch(FB_URL + '/reset_requested.json', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: 'true'
