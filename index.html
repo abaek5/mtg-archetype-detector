@@ -711,46 +711,6 @@ function setWatcherUrl() {
   if (input && WATCHER_URL !== 'http://127.0.0.1:5000') input.value = WATCHER_URL;
 })();
 
-function saveWatcherUrl() {
-  const input = document.getElementById('ngrok-url-input');
-  const val = input.value.trim().replace(/\/+$/, '');
-  if (!val) return;
-  WATCHER_URL = val;
-  localStorage.setItem('mtgWatcherUrl', val);
-  watcherConnected = false;
-  pollWatcher();
-  input.style.borderColor = '#1D9E75';
-  setTimeout(() => input.style.borderColor = '', 1500);
-}
-
-// Auto-detect ngrok URL from local API, fallback to saved URL
-(async function() {
-  const input = document.getElementById('ngrok-url-input');
-  const saved = localStorage.getItem('mtgWatcherUrl') || '';
-
-  // First try to auto-detect from ngrok local API (works when ngrok is running)
-  try {
-    const r = await fetch('http://127.0.0.1:4040/api/tunnels', { signal: AbortSignal.timeout(1000) });
-    const d = await r.json();
-    const url = (d.tunnels || []).find(t => t.proto === 'https')?.public_url;
-    if (url) {
-      WATCHER_URL = url;
-      localStorage.setItem('mtgWatcherUrl', url);
-      if (input) input.value = url;
-      console.log('Auto-detected ngrok URL:', url);
-      pollWatcher();
-      return;
-    }
-  } catch(e) {}
-
-  // Fallback to saved URL
-  if (saved) {
-    WATCHER_URL = saved;
-    if (input) input.value = saved;
-    pollWatcher();
-  }
-})();
-
 renderFormats();
 renderTags();
 

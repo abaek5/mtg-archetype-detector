@@ -30,7 +30,7 @@ timeout /t 2 /nobreak >nul
 
 :: ── Step 2: Open site ─────────────────────────────────────────────────────────
 echo [2/2] Opening MTG Detector...
-start "" "%SITE%"
+start "" "chrome.exe" "%SITE%" 2>nul || start "" "%SITE%"
 
 echo.
 echo ============================================
