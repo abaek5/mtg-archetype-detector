@@ -18,6 +18,7 @@ SCRYFALL_BULK = Path(os.path.expandvars(r"%TEMP%\mtga_cards.json"))
 state = {
     "opponent_cards": [],
     "my_seat": 0,         # 0=unknown, detected from log
+    "_in_client_msg": False,
     "my_hand": [],
     "my_battlefield": [],
     "opp_battlefield": [],
@@ -134,18 +135,26 @@ def lookup_grp(grp_id: int):
 
 # ── Parse game state messages ──────────────────────────────────────────────────
 def detect_seat_from_header(line: str):
-    """Detect our seat from log header lines like:
-    'MATCHID to Match: ClientToGreuimessage' followed by 'systemSeatId: N'
-    These headers are only generated for OUR messages to the server."""
+    """Detect our seat from log header lines."""
     import re
-    if "to Match: ClientToGre" in line or "ClientToMatchServiceMessageType_ClientToGREUIMessage" in line:
+    # Match header line containing match ID and ClientToGre
+    if "to Match: ClientToGre" in line:
+        # Next lines will have systemSeatId — store that we're in a client message
+        with lock:
+            state["_in_client_msg"] = True
+        return
+    if state.get("_in_client_msg"):
         m = re.search(r'"systemSeatId"\s*:\s*(\d+)', line)
         if m:
             seat = int(m.group(1))
             with lock:
+                state["_in_client_msg"] = False
                 if state["my_seat"] == 0 and seat in (1, 2):
                     state["my_seat"] = seat
                     print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+        elif line.strip() and not line.strip().startswith('"systemSeatId'):
+            with lock:
+                state["_in_client_msg"] = False
 
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
