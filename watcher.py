@@ -116,8 +116,10 @@ def lookup_grp(grp_id: int):
                 for iid, info in state["instance_map"].items():
                     if info.get("grpId") == grp_id and not info.get("name"):
                         info["name"] = name
+                    my_seat = state.get("my_seat") or 1
+                    opp_seat = 2 if my_seat == 1 else 1
                     if (info.get("grpId") == grp_id
-                            and info.get("owner") == 2
+                            and info.get("owner") == opp_seat
                             and info.get("pending_add")):
                         info["pending_add"] = False
                         ctypes = info.get("cardTypes", [])
@@ -128,7 +130,7 @@ def lookup_grp(grp_id: int):
                                 and name not in state["opponent_cards"]):
                             state["opponent_cards"].append(name)
                             state["last_update"] = time.time()
-                            print(f"  [CAST ] Opponent (seat {opp_seat}): {name}  [my_seat={my_seat}]")
+                            print(f"  [LATE ] Opponent: {name}")
         except Exception as e:
             print(f"  [ERR  ] Scryfall lookup grp={grp_id}: {e}")
     threading.Thread(target=_fetch, daemon=True).start()
