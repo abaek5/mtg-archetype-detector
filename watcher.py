@@ -26,7 +26,6 @@ state = {
     "opp_life": 20,
     "last_update": 0,
     "grp_map": {},        # grpId (int) -> card name (str)
-    "my_seat": None,      # detected from log (1 or 2)
     "instance_map": {},   # instanceId -> {grpId, owner, zone_type, ...}
 }
 lock = threading.Lock()
@@ -133,18 +132,6 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
-def detect_my_seat(text: str):
-    """Arena always sends greToClientMessages with systemSeatIds=[1] for local player.
-    So we are always seat 1, opponent is always seat 2."""
-    with lock:
-        if state["my_seat"] is None:
-            state["my_seat"] = 1
-            print("  [SEAT ] You are seat 1, opponent is seat 2")
-
-def parse_game_state(msg: dict):
-    gm = msg.get("gameStateMessage", {})
-    if not gm:
-        return
 
     with lock:
         # Life totals
@@ -218,13 +205,11 @@ def parse_game_state(msg: dict):
 
         # Detect new match — reset opponent cards when turn 1 starts fresh
         ti = gm.get("turnInfo", {})
-        if ti.get("turnNumber") == 1 and ti.get("phase") == "Phase_Beginning":
-            if state["turn"] > 1 or state["opponent_cards"]:  # was mid-game
-                state["opponent_cards"] = []
-                state["instance_map"] = {}
-                state["my_seat"] = None
-                state["last_update"] = time.time()
-                print("  [RESET] New match detected — clearing opponent cards")
+        if ti.get("turnNumber") == 1 and state["turn"] > 5:
+            # New match detected (turn reset after a long game)
+            state["opponent_cards"] = []
+            state["last_update"] = time.time()
+            print("  [RESET] New match detected — clearing opponent cards")
 
         # Annotation: ZoneTransfer CastSpell = opponent played a card
         for ann in gm.get("annotations", []):
@@ -330,7 +315,6 @@ def push_loop():
 
 # ── Log watcher ────────────────────────────────────────────────────────────────
 def parse_chunk(text: str):
-    detect_my_seat(text)
     for line in text.split("\n"):
         line = line.strip()
         if not line.startswith("{"):
