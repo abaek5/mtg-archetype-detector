@@ -136,27 +136,26 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
-def detect_seat_from_header(line: str):
-    """Detect our seat from log header lines."""
+def detect_seat_from_chunk(chunk: str):
+    """Detect our seat from ClientToGREUIMessage blocks in a log chunk.
+    These blocks appear as: 'MATCHID to Match: ClientToGreuimessage'
+    followed shortly by 'systemSeatId: N' — this is always OUR seat."""
     import re
-    # Match header line containing match ID and ClientToGre
-    if "to Match: ClientToGre" in line:
-        # Next lines will have systemSeatId — store that we're in a client message
-        with lock:
-            state["_in_client_msg"] = True
-        return
-    if state.get("_in_client_msg"):
-        m = re.search(r'"systemSeatId"\s*:\s*(\d+)', line)
-        if m:
-            seat = int(m.group(1))
+    with lock:
+        if state["my_seat"] != 0:
+            return
+    # Find all ClientToGre blocks and extract systemSeatId from nearby text
+    for m in re.finditer(r'to Match: ClientToGre.*?"systemSeatId"\s*:\s*(\d+)', chunk, re.DOTALL):
+        seat = int(m.group(1))
+        if seat in (1, 2):
             with lock:
-                state["_in_client_msg"] = False
-                if state["my_seat"] == 0 and seat in (1, 2):
+                if state["my_seat"] == 0:
                     state["my_seat"] = seat
                     print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
-        elif line.strip() and not line.strip().startswith('"systemSeatId'):
-            with lock:
-                state["_in_client_msg"] = False
+            return
+
+def detect_seat_from_header(line: str):
+    pass  # replaced by detect_seat_from_chunk
 
 def parse_game_state(msg: dict):
     gm = msg.get("gameStateMessage", {})
@@ -375,8 +374,7 @@ def push_loop():
 
 # ── Log watcher ────────────────────────────────────────────────────────────────
 def parse_chunk(text: str):
-    for line in text.split("\n"):
-        detect_seat_from_header(line)
+    detect_seat_from_chunk(text)
     for line in text.split("\n"):
         line = line.strip()
         if not line.startswith("{"):
