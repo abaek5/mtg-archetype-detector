@@ -298,19 +298,22 @@ def rebuild_visible_state():
             zt    = info.get("zone_type", "")
             name  = info.get("name")
             owner = info.get("owner")
-            if not name or info.get("token"):
+            is_token = info.get("token", False)
+            if not name:
                 continue
+            # Allow tokens on battlefield but skip in other contexts
             my_seat = state.get("my_seat") or 1
             opp_seat = 2 if my_seat == 1 else 1
-            if zt == "Hand" and owner == my_seat:
+            if zt == "Hand" and owner == my_seat and not is_token:
                 my_hand.append(name)
             elif zt == "Battlefield":
                 entry = {
-                    "name":      name,
+                    "name":      name + (" [Token]" if is_token else ""),
                     "power":     info.get("power"),
                     "toughness": info.get("toughness"),
                     "tapped":    info.get("tapped", False),
                     "types":     info.get("cardTypes", []),
+                    "token":     is_token,
                 }
                 if owner == my_seat:
                     my_bf.append(entry)
