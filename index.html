@@ -369,6 +369,14 @@ button:active { transform: scale(0.98); }
       <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Start watcher.py to connect</span>
     </div>
 
+    <div id="bo3-panel" style="display:none;background:var(--bg-secondary);border-radius:var(--radius-lg);padding:10px 12px;">
+      <div class="section-label" style="margin-bottom:6px;">Best of 3</div>
+      <div id="game-indicator" style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:8px;">Game 1</div>
+      <div id="sideboard-advice" style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;"></div>
+      <button onclick="startGame2()" style="width:100%;justify-content:center;font-size:12px;"><i class="ti ti-arrow-right"></i> Start Game 2</button>
+      <button onclick="startGame2()" id="game3-btn" style="width:100%;justify-content:center;font-size:12px;margin-top:4px;display:none;"><i class="ti ti-arrow-right"></i> Start Game 3</button>
+    </div>
+
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto;">
       <button class="new-game-btn" onclick="newGame();resetWatcher()"><i class="ti ti-refresh"></i> New game</button>
       <button class="clear-feed-btn" onclick="clearFeed()"><i class="ti ti-trash"></i> Clear feed</button>
@@ -496,17 +504,25 @@ function selectFormat(f) { selectedFormat = f; renderFormats(); }
 /* ── deck loading ── */
 function parseDeck() {
   const raw = document.getElementById('my-deck-input').value.trim();
-  const cards = [];
+  const cards = [], sideboard = [];
+  let inSideboard = false;
   for (const line of raw.split('\n')) {
     const t = line.trim();
-    if (!t || t.startsWith('//') || t.toLowerCase()==='deck' || t.toLowerCase()==='sideboard') continue;
+    if (!t) continue;
+    if (t.toLowerCase() === 'sideboard') { inSideboard = true; continue; }
+    if (t.toLowerCase() === 'deck') { inSideboard = false; continue; }
+    if (t.startsWith('//')) continue;
     const m = t.match(/^(\d+)\s+(.+?)(\s+\(.*)?$/);
-    if (m) { const qty=parseInt(m[1]); const name=m[2].trim(); for(let i=0;i<qty;i++) cards.push(name); }
+    if (m) {
+      const qty = parseInt(m[1]), name = m[2].trim();
+      for (let i = 0; i < qty; i++) (inSideboard ? sideboard : cards).push(name);
+    }
   }
-  myDeck = { cards };
+  myDeck = { cards, sideboard };
   const el = document.getElementById('deck-status');
+  const sbText = sideboard.length ? ` + ${[...new Set(sideboard)].length} sideboard` : '';
   el.innerHTML = cards.length
-    ? `<div class="deck-loaded"><i class="ti ti-check" style="font-size:13px"></i> ${cards.length} cards (${[...new Set(cards)].length} unique)</div>`
+    ? `<div class="deck-loaded"><i class="ti ti-check" style="font-size:13px"></i> ${cards.length} cards (${[...new Set(cards)].length} unique)${sbText}</div>`
     : `<div style="font-size:11px;color:var(--text-secondary);margin-top:5px;">Couldn't parse — use Arena export format.</div>`;
 }
 
@@ -716,6 +732,76 @@ function setWatcherUrl() {
 
 
 
+async function getSideboardAdvice(archetype) {
+  const key = getApiKey();
+  if (!key || !myDeck.sideboard || !myDeck.sideboard.length) return null;
+  try {
+    const advice = await callClaude(
+      `You are an expert MTG sideboard advisor. Given the opponent's archetype and the player's sideboard, recommend exactly which cards to bring in and take out. Respond ONLY with valid JSON (no markdown): {bring_in: [{card: string, qty: number, reason: string}], take_out: [{card: string, qty: number, reason: string}], summary: string}`,
+      `Opponent archetype: ${archetype.name} (${archetype.strategy}). Opponent cards seen: ${opponentCards.join(', ')}. My sideboard: ${[...new Set(myDeck.sideboard)].join(', ')}. My main deck: ${[...new Set(myDeck.cards)].join(', ')}`
+    );
+    return advice;
+  } catch(e) { return null; }
+}
+
+async function showSideboardPanel(archetype) {
+  const panel = document.getElementById('bo3-panel');
+  const adviceEl = document.getElementById('sideboard-advice');
+  panel.style.display = 'block';
+  matchState.archetypeConfirmed = archetype;
+
+  if (!myDeck.sideboard || !myDeck.sideboard.length) {
+    adviceEl.innerHTML = '<span style="color:var(--text-secondary)">Load a deck with sideboard to get swap recommendations.</span>';
+    return;
+  }
+  if (!getApiKey()) {
+    adviceEl.innerHTML = '<span style="color:var(--text-secondary)">Add Anthropic API key for sideboard recommendations.</span>';
+    return;
+  }
+
+  adviceEl.innerHTML = '<span class="dot-anim">Getting sideboard advice</span>';
+  const advice = await getSideboardAdvice(archetype);
+  if (!advice) { adviceEl.innerHTML = 'Could not generate advice.'; return; }
+
+  matchState.sideboardAdvice = advice;
+  adviceEl.innerHTML = `
+    <div style="margin-bottom:6px;font-size:12px;color:var(--text)">${advice.summary}</div>
+    ${(advice.bring_in||[]).map(c=>`<div style="font-size:11px;padding:2px 0;color:#085041"><i class="ti ti-plus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('')}
+    ${(advice.take_out||[]).map(c=>`<div style="font-size:11px;padding:2px 0;color:#791F1F"><i class="ti ti-minus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('')}
+  `;
+}
+
+function startGame2() {
+  const gameNum = matchState.game + 1;
+  matchState.game = gameNum;
+  document.getElementById('game-indicator').textContent = `Game ${gameNum}`;
+  if (gameNum === 3) document.getElementById('game3-btn').style.display = 'none';
+  // Keep archetype but clear card feed for new game
+  const prevArchetype = matchState.archetypeConfirmed;
+  clearFeed();
+  opponentCards = [];
+  renderTags();
+  lastSeenCards = [];
+  // Show sideboard advice prominently
+  if (prevArchetype) {
+    document.getElementById('sideboard-advice').innerHTML = 
+      matchState.sideboardAdvice
+        ? `<div style="font-size:11px;font-weight:500;color:var(--text);margin-bottom:4px;">vs ${prevArchetype.name}</div>` +
+          (matchState.sideboardAdvice.bring_in||[]).map(c=>`<div style="font-size:11px;color:#085041"><i class="ti ti-plus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('') +
+          (matchState.sideboardAdvice.take_out||[]).map(c=>`<div style="font-size:11px;color:#791F1F"><i class="ti ti-minus" style="font-size:10px"></i> ${c.qty}x ${c.card}</div>`).join('')
+        : `Facing ${prevArchetype.name} — sideboard accordingly.`;
+  }
+}
+
+// Show Bo3 panel when archetype confidence hits 65%+
+const _origAddFeedEntry = addFeedEntry;
+addFeedEntry = function(args) {
+  _origAddFeedEntry(args);
+  if (args.archetype && Math.round(args.archetype.confidence||0) >= 65 && !matchState.archetypeConfirmed) {
+    showSideboardPanel(args.archetype);
+  }
+};
+
 renderFormats();
 renderTags();
 
@@ -723,6 +809,7 @@ renderTags();
 // Firebase config
 var FB_URL = "https://mtg-detector-40285-default-rtdb.firebaseio.com";
 var lastSeenCards = [];
+var matchState = { game: 1, archetypeConfirmed: null, sideboardAdvice: null };
 var lastGameState = {};
 var watcherConnected = false;
 

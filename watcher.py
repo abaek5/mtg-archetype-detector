@@ -17,6 +17,7 @@ SCRYFALL_BULK = Path(os.path.expandvars(r"%TEMP%\mtga_cards.json"))
 # ── Shared state ───────────────────────────────────────────────────────────────
 state = {
     "opponent_cards": [],
+    "match_game": 1,      # current game in match (1, 2, 3)
     "my_seat": 0,         # 0=unknown, detected from log
     "_in_client_msg": False,
     "my_hand": [],
@@ -235,13 +236,18 @@ def parse_game_state(msg: dict):
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Hand"
 
-        # Detect new match — reset opponent cards when turn 1 starts fresh
+        # Detect game 2/3 within same match, or new match
         ti = gm.get("turnInfo", {})
-        if ti.get("turnNumber") == 1 and state["turn"] > 5:
-            # New match detected (turn reset after a long game)
+        cur_turn = ti.get("turnNumber", 0)
+        if cur_turn == 1 and state["turn"] > 5:
+            state["match_game"] += 1
             state["opponent_cards"] = []
+            state["instance_map"] = {}
+            state["my_seat"] = 0
             state["last_update"] = time.time()
-            print("  [RESET] New match detected — clearing opponent cards")
+            if state["match_game"] > 3:
+                state["match_game"] = 1  # new match
+            print(f"  [GAME  ] Game {state['match_game']} detected — clearing opponent cards")
 
         # Annotation: ZoneTransfer CastSpell = opponent played a card
         for ann in gm.get("annotations", []):
@@ -338,6 +344,7 @@ def push_to_firebase():
                 "my_life":         state["my_life"],
                 "opp_life":        state["opp_life"],
                 "last_update":     state["last_update"],
+                "match_game":      state["match_game"],
             }).encode()
         req = urllib.request.Request(
             f"{FIREBASE_URL}/state.json",
