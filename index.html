@@ -732,11 +732,32 @@ function saveWatcherUrl() {
   setTimeout(() => input.style.borderColor = '', 1500);
 }
 
-// Restore saved URL
-(function() {
-  const saved = localStorage.getItem('mtgWatcherUrl') || '';
+// Auto-detect ngrok URL from local API, fallback to saved URL
+(async function() {
   const input = document.getElementById('ngrok-url-input');
-  if (input && saved) { input.value = saved; WATCHER_URL = saved; }
+  const saved = localStorage.getItem('mtgWatcherUrl') || '';
+
+  // First try to auto-detect from ngrok local API (works when ngrok is running)
+  try {
+    const r = await fetch('http://127.0.0.1:4040/api/tunnels', { signal: AbortSignal.timeout(1000) });
+    const d = await r.json();
+    const url = (d.tunnels || []).find(t => t.proto === 'https')?.public_url;
+    if (url) {
+      WATCHER_URL = url;
+      localStorage.setItem('mtgWatcherUrl', url);
+      if (input) input.value = url;
+      console.log('Auto-detected ngrok URL:', url);
+      pollWatcher();
+      return;
+    }
+  } catch(e) {}
+
+  // Fallback to saved URL
+  if (saved) {
+    WATCHER_URL = saved;
+    if (input) input.value = saved;
+    pollWatcher();
+  }
 })();
 
 renderFormats();
