@@ -239,15 +239,17 @@ def parse_game_state(msg: dict):
         # Detect game 2/3 within same match, or new match
         ti = gm.get("turnInfo", {})
         cur_turn = ti.get("turnNumber", 0)
-        if cur_turn == 1 and state["turn"] > 5:
+        if cur_turn == 1 and state["turn"] > 3:
             state["match_game"] += 1
+            if state["match_game"] > 3:
+                state["match_game"] = 1
             state["opponent_cards"] = []
             state["instance_map"] = {}
             state["my_seat"] = 0
+            state["my_life"] = 20
+            state["opp_life"] = 20
             state["last_update"] = time.time()
-            if state["match_game"] > 3:
-                state["match_game"] = 1  # new match
-            print(f"  [GAME  ] Game {state['match_game']} detected — clearing opponent cards")
+            print(f"  [GAME  ] Game {state['match_game']} started — opponent cards cleared")
 
         # Annotation: ZoneTransfer CastSpell = opponent played a card
         for ann in gm.get("annotations", []):

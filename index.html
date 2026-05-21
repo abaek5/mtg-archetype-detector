@@ -575,7 +575,7 @@ async function runAnalysis(newCard) {
   let archetype = null;
   let usedAI = false;
 
-  if (scored.length && scored[0].confidence >= 20) {
+  if (scored.length && scored[0].score >= 2 && scored[0].confidence >= 30) {
     archetype = scored[0];
     archetype.others = scored.slice(1,4);
   } else {
@@ -606,18 +606,26 @@ async function runAnalysis(newCard) {
     } catch(e) {}
   }
 
-  addFeedEntry({ archetype, usedAI, newCard, advice, cardCount: opponentCards.length });
+  addFeedEntry({ archetype, usedAI, newCard, advice, cardCount: opponentCards.length, scored });
 }
 
 /* ── feed rendering ── */
-function addFeedEntry({ archetype, usedAI, newCard, advice, cardCount }) {
+function addFeedEntry({ archetype, usedAI, newCard, advice, cardCount, scored }) {
   const seq = feedEntries.length + 1;
   const conf = Math.round(archetype.confidence || 0);
   const colors = archetype.colors || [];
   const others = archetype.others || [];
 
-  const othersHTML = others.length
-    ? `<div class="others-row">${others.map(o=>`<span class="other-pill">${o.name} (${o.score})</span>`).join('')}</div>`
+  // Show all candidates with scores when 2+ match
+  const allMatches = scored ? scored.slice(0,5) : (archetype.others ? [archetype, ...archetype.others] : []);
+  const othersHTML = allMatches.length > 1
+    ? `<div style="margin-top:8px;">
+        <div class="section-label" style="margin-bottom:4px;">All candidates</div>
+        ${allMatches.map((o,i) => `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:0.5px solid var(--border);">
+          <span style="color:${i===0?'var(--text)':'var(--text-secondary)'};font-weight:${i===0?'500':'400'}">${i===0?'★ ':''}${o.name}</span>
+          <span style="color:var(--text-secondary)">${o.score} card${o.score!==1?'s':''} · ${Math.round(o.confidence||0)}%</span>
+        </div>`).join('')}
+      </div>`
     : '';
 
   const adviceHTML = advice ? `
