@@ -9,7 +9,7 @@ echo.
 
 :: ── Config ────────────────────────────────────────────────────────────────────
 set WATCHER=%~dp0watcher.py
-set SITE=https://super-rain-201b.abaek5.workers.dev
+set SITE=https://mtg-archetype-detector.pages.dev
 
 :: ── Checks ────────────────────────────────────────────────────────────────────
 python --version >nul 2>&1
