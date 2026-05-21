@@ -767,10 +767,6 @@ async function pollFirebase() {
     const data = await resp.json();
     if (!data) { updateWatcherStatus(false); return; }
 
-    const now = Date.now() / 1000;
-    const age = now - (data.last_update || 0);
-    updateWatcherStatus(age < 30); // offline if no update in 30s
-
     const newCards = (data.opponent_cards || []).filter(c => !lastSeenCards.includes(c));
     for (const card of newCards) {
       if (!opponentCards.includes(card)) {
@@ -783,6 +779,8 @@ async function pollFirebase() {
     lastSeenCards = data.opponent_cards || [];
     renderGameState(data);
     lastGameState = data;
+    // Show connected if we got valid data regardless of timestamp age
+    updateWatcherStatus(true);
   } catch(e) {
     updateWatcherStatus(false);
   }
