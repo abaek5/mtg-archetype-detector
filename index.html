@@ -461,6 +461,19 @@ canvas#confetti-canvas {
     </div>
   </div>
 
+  <!-- ── THREAT ASSESSMENT ── -->
+  <div id="threat-panel" style="display:none;background:#0d1018;border-bottom:1px solid rgba(226,75,74,0.2);padding:10px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:#E24B4A;box-shadow:0 0 6px #E24B4A;"></div>
+        <span style="font-size:13px;font-weight:600;color:#F07070;letter-spacing:0.05em;text-transform:uppercase;">Threat Assessment</span>
+        <span id="threat-turn" style="font-size:11px;color:#8a8070;background:#171b26;padding:2px 8px;border-radius:999px;"></span>
+      </div>
+      <button onclick="document.getElementById('threat-panel').style.display='none'" style="font-size:11px;padding:3px 8px;color:#8a8070;"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="threat-content" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;"></div>
+  </div>
+
   <!-- ── PLAY ADVISOR ── -->
   <div id="play-advisor-panel" style="display:none;background:var(--bg);border-bottom:0.5px solid var(--border);padding:12px 16px;max-height:220px;overflow-y:auto;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -867,6 +880,8 @@ function newGame() {
   // Clear play advisor
   const pa = document.getElementById('play-advisor-panel');
   if (pa) pa.style.display = 'none';
+  const tp = document.getElementById('threat-panel');
+  if (tp) tp.style.display = 'none';
   // Clear timeline
   feedEntries = [];
   updateTimeline();
@@ -1063,6 +1078,87 @@ function deleteDeck() {
   if (input && saved) input.value = saved;
 })();
 
+// ── Threat Assessment ────────────────────────────────────────────────────────
+var lastThreatTurn = 0;
+var threatThinking = false;
+
+function getThreatLevel(card, myLife, oppLife, turn) {
+  // Quick pattern-based threat scoring without API
+  var name = (card.name||'').toLowerCase().replace(' [token]','');
+  var power = card.power || 0;
+  var tapped = card.tapped;
+  
+  // High threats
+  var highThreats = ['sheoldred','craterhoof','ulamog','emrakul','griselbrand','atraxa','toxrill','vorinclex','omnath'];
+  var midThreats = ['tarmogoyf','deaths shadow','murktide','ragavan','dragon','titan','elder','demon','angel'];
+  
+  var isHigh = highThreats.some(function(t) { return name.includes(t); });
+  var isMid = midThreats.some(function(t) { return name.includes(t); });
+  
+  var baseThreat = isHigh ? 9 : isMid ? 7 : Math.min(9, Math.max(1, power * 1.5));
+  
+  // Life total modifier — more dangerous when we're low
+  if (myLife <= 5) baseThreat = Math.min(10, baseThreat + 3);
+  else if (myLife <= 10) baseThreat = Math.min(10, baseThreat + 1);
+  
+  // Tapped = less immediate threat
+  if (tapped) baseThreat = Math.max(1, baseThreat - 2);
+  
+  // Planeswalkers are always threats
+  if ((card.types||[]).includes('CardType_Planeswalker')) baseThreat = Math.max(7, baseThreat);
+  
+  return Math.round(baseThreat);
+}
+
+function getThreatColor(level) {
+  if (level >= 8) return '#E24B4A';
+  if (level >= 6) return '#E8A84C';
+  if (level >= 4) return '#C9A84C';
+  return '#4ECFA0';
+}
+
+function updateThreatAssessment(gameState) {
+  if (!gameState || !gameState.opp_battlefield) return;
+  const nonLandPerms = (gameState.opp_battlefield || []).filter(function(c) {
+    return !(c.types||[]).includes('CardType_Land');
+  });
+  if (!nonLandPerms.length) return;
+
+  const panel = document.getElementById('threat-panel');
+  const content = document.getElementById('threat-content');
+  const turnEl = document.getElementById('threat-turn');
+  if (!panel || !content) return;
+
+  panel.style.display = 'block';
+  if (turnEl) turnEl.textContent = 'Turn ' + (gameState.turn || '?');
+
+  const myLife = gameState.my_life || 20;
+  const oppLife = gameState.opp_life || 20;
+  const turn = gameState.turn || 0;
+
+  // Sort by threat level
+  var threats = nonLandPerms.map(function(c) {
+    return { card: c, level: getThreatLevel(c, myLife, oppLife, turn) };
+  }).sort(function(a,b) { return b.level - a.level; });
+
+  content.innerHTML = threats.map(function(t) {
+    var c = t.card;
+    var level = t.level;
+    var color = getThreatColor(level);
+    var name = c.name || '?';
+    var stats = c.power != null ? c.power + '/' + c.toughness : '';
+    var tapped = c.tapped ? ' · tapped' : '';
+    
+    return '<div style="background:#171b26;border:1px solid ' + color + '22;border-left:3px solid ' + color + ';border-radius:6px;padding:8px 10px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+        '<div style="font-size:12px;color:#e8dcc8;font-weight:500;">' + name + '</div>' +
+        '<div style="font-size:13px;font-weight:700;color:' + color + ';">' + level + '</div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:#8a8070;margin-top:2px;">' + (stats ? stats + tapped : tapped||'Permanent') + '</div>' +
+    '</div>';
+  }).join('');
+}
+
 // ── Play Advisor ──────────────────────────────────────────────────────────────
 var lastAdvisorPhase = '';
 var lastAdvisorTurn = 0;
@@ -1254,6 +1350,7 @@ async function pollFirebase() {
     }
     lastSeenCards = allOppCards;
     renderGameState(data);
+    updateThreatAssessment(data);
     updatePlayAdvisor(data);
     lastGameState = data;
     // Show connected if we got valid data regardless of timestamp age
