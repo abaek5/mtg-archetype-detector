@@ -352,7 +352,18 @@ def rebuild_visible_state():
             my_seat = state.get("my_seat") or 0
             opp_seat = 2 if my_seat == 1 else 1
             if zt == "Hand" and owner == my_seat and not is_token:
-                my_hand.append(name)
+                if name:
+                    my_hand.append(name)
+                else:
+                    # Try to resolve grpId for unresolved hand cards
+                    grpid = info.get("grpId")
+                    if grpid:
+                        resolved = state["grp_map"].get(grpid)
+                        if resolved:
+                            info["name"] = resolved
+                            my_hand.append(resolved)
+                        else:
+                            lookup_grp(grpid)  # trigger async lookup
             elif zt == "Graveyard" and owner == opp_seat and not is_token:
                 if name not in state["opp_graveyard"] and name not in SKIP_NAMES:
                     state["opp_graveyard"].append(name)
