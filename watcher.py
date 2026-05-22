@@ -141,22 +141,25 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
+MY_PLAYER_NAME = "abaek5"  # Your Arena username
+
 def detect_seat_from_chunk(chunk: str):
-    """Detect our seat from ClientToGREUIMessage blocks in a log chunk.
-    These blocks appear as: 'MATCHID to Match: ClientToGreuimessage'
-    followed shortly by 'systemSeatId: N' — this is always OUR seat."""
+    """Detect our seat by matching our player name to a seat number in the log."""
     import re
     with lock:
         if state["my_seat"] != 0:
             return
-    # Find all ClientToGre blocks and extract systemSeatId from nearby text
-    for m in re.finditer(r'to Match: ClientToGre.*?"systemSeatId"\s*:\s*(\d+)', chunk, re.DOTALL):
-        seat = int(m.group(1))
-        if seat in (1, 2):
+    # Look for playerName + systemSeatId pairs in the chunk
+    # Arena logs player info as: "playerName": "username" ... "systemSeatId": N
+    matches = list(re.finditer(r'"playerName"\s*:\s*"([^"]+)".*?"systemSeatId"\s*:\s*(\d+)', chunk, re.DOTALL))
+    for m in matches:
+        name = m.group(1)
+        seat = int(m.group(2))
+        if name.lower() == MY_PLAYER_NAME.lower() and seat in (1, 2):
             with lock:
                 if state["my_seat"] == 0:
                     state["my_seat"] = seat
-                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+                    print(f"  [SEAT ] Detected by name: You are seat {seat}, opponent is seat {3-seat}")
             return
 
 def detect_seat_from_header(line: str):
