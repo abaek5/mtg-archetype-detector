@@ -169,7 +169,7 @@ def parse_game_state(msg: dict):
 
     with lock:
         # Life totals — use detected seat
-        my_seat = state.get("my_seat") or 1
+        my_seat = state.get("my_seat") or 0
         for p in gm.get("players", []):
             seat = p.get("systemSeatNumber")
             life = p.get("lifeTotal")
@@ -322,7 +322,7 @@ def parse_game_state(msg: dict):
     for obj in gm.get("gameObjects", []):
         grpid = obj.get("grpId")
         owner = obj.get("ownerSeatId")
-        my_seat = state.get("my_seat") or 1
+        my_seat = state.get("my_seat") or 0
         opp_seat = 2 if my_seat == 1 else 1
         if grpid and owner == opp_seat:
             with lock:
@@ -340,7 +340,7 @@ def rebuild_visible_state():
             if not name:
                 continue
             # Allow tokens on battlefield but skip in other contexts
-            my_seat = state.get("my_seat") or 1
+            my_seat = state.get("my_seat") or 0
             opp_seat = 2 if my_seat == 1 else 1
             if zt == "Hand" and owner == my_seat and not is_token:
                 my_hand.append(name)
