@@ -419,12 +419,6 @@ canvas#confetti-canvas {
 
     <div id="game-state-panel" style="display:none;"></div>
 
-    <div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;">
-      <span style="font-size:11px;color:var(--text-secondary);">Your seat:</span>
-      <button id="seat1-btn" onclick="setSeat(1)" style="font-size:11px;padding:2px 10px;background:var(--bg-secondary);">Seat 1</button>
-      <button id="seat2-btn" onclick="setSeat(2)" style="font-size:11px;padding:2px 10px;background:var(--bg-secondary);">Seat 2</button>
-      <span id="seat-indicator" style="font-size:10px;color:var(--text-secondary);">auto</span>
-    </div>
     <div id="watcher-status" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);">
       <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Start watcher.py to connect</span>
     </div>
@@ -1236,21 +1230,6 @@ function updatePlayAdvisor(gameState) {
     // Small delay to let game state stabilize
     setTimeout(triggerPlayAdvice, 1500);
   }
-}
-
-function setSeat(seat) {
-  fetch(FB_URL + '/seat_override.json', {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(seat)
-  }).catch(function(){});
-  document.getElementById('seat-indicator').textContent = 'Seat ' + seat;
-  var s1 = document.getElementById('seat1-btn');
-  var s2 = document.getElementById('seat2-btn');
-  if (s1) s1.style.background = seat === 1 ? 'var(--text)' : 'var(--bg-secondary)';
-  if (s1) s1.style.color = seat === 1 ? 'var(--bg)' : 'var(--text)';
-  if (s2) s2.style.background = seat === 2 ? 'var(--text)' : 'var(--bg-secondary)';
-  if (s2) s2.style.color = seat === 2 ? 'var(--bg)' : 'var(--text)';
 }
 
 renderFormats();
