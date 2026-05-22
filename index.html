@@ -1316,6 +1316,20 @@ setInterval(pollFirebase, 2000);
 pollFirebase();
 </script>
 
+<!-- Post-game analysis panel -->
+<div id="postgame-panel" style="display:none;position:fixed;top:0;right:0;width:420px;height:100vh;background:#0d1018;border-left:1px solid rgba(180,150,80,0.3);z-index:9990;overflow-y:auto;padding:20px;box-shadow:-4px 0 30px rgba(0,0,0,0.6);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="font-size:14px;font-weight:600;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;">Post-Game Analysis</div>
+    <button onclick="document.getElementById('postgame-panel').style.display='none'" style="padding:4px 8px;font-size:11px;">✕ Close</button>
+  </div>
+  <div id="postgame-result-badge" style="margin-bottom:14px;"></div>
+  <div id="postgame-content" style="font-size:12px;color:#8a8070;line-height:1.7;">
+    <div style="display:flex;align-items:center;gap:8px;color:#C9A84C;">
+      <span>Analyzing match...</span>
+    </div>
+  </div>
+</div>
+
 <canvas id="confetti-canvas" style="display:none;"></canvas>
 <div id="match-result-overlay">
   <div class="result-content" style="background:var(--bg);border:0.5px solid var(--border);border-radius:20px;padding:40px 60px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
@@ -1326,7 +1340,7 @@ pollFirebase();
 </div>
 
 <script>
-function showMatchResult(won) {
+async function showMatchResult(won) {
   const overlay = document.getElementById('match-result-overlay');
   const emoji = document.getElementById('result-emoji');
   const text = document.getElementById('result-text');
@@ -1344,6 +1358,79 @@ function showMatchResult(won) {
   }
   overlay.classList.add('show');
   setTimeout(closeResult, 6000);
+
+  // Trigger post-game analysis
+  triggerPostGameAnalysis(won);
+}
+
+async function triggerPostGameAnalysis(won) {
+  const panel = document.getElementById('postgame-panel');
+  const contentEl = document.getElementById('postgame-content');
+  const badge = document.getElementById('postgame-result-badge');
+  
+  panel.style.display = 'block';
+  
+  badge.innerHTML = won 
+    ? '<div style="background:rgba(29,158,117,0.15);border:1px solid rgba(29,158,117,0.3);border-radius:6px;padding:8px 12px;color:#4ECFA0;font-weight:600;">Victory</div>'
+    : '<div style="background:rgba(226,75,74,0.15);border:1px solid rgba(226,75,74,0.3);border-radius:6px;padding:8px 12px;color:#F07070;font-weight:600;">Defeat</div>';
+
+  contentEl.innerHTML = '<div style="color:#C9A84C;">Analyzing match...</div>';
+
+  const key = getApiKey();
+  if (!key) {
+    contentEl.innerHTML = '<div style="color:#8a8070;">Add your Anthropic API key to enable post-game analysis.</div>';
+    return;
+  }
+
+  // Gather match context
+  const archetype = matchState.archetypeConfirmed ? matchState.archetypeConfirmed.name : 'Unknown';
+  const cardsSet = opponentCards.length;
+  const myDeckName = document.getElementById('deck-selector') ? document.getElementById('deck-selector').value : 'Unknown';
+  const myLife = lastGameState.my_life || 20;
+  const oppLife = lastGameState.opp_life || 20;
+  const turn = lastGameState.turn || 0;
+  const graveyard = lastGameState.opp_graveyard || [];
+  const sbAdvice = matchState.sideboardAdvice;
+
+  try {
+    const analysis = await callClaude(
+      'You are an expert MTG coach giving concise post-game analysis. Be specific and actionable. Respond ONLY with valid JSON: {summary: string, what_went_well: [string], improvements: [string], key_moment: string, rating: number (1-10)}',
+      'Match result: ' + (won ? 'WIN' : 'LOSS') + '. ' +
+      'My deck: ' + myDeckName + '. ' +
+      'Opponent archetype: ' + archetype + '. ' +
+      'Opponent cards seen (' + cardsSet + '): ' + opponentCards.slice(0,12).join(', ') + '. ' +
+      'Final life totals - Me: ' + myLife + ', Opp: ' + oppLife + '. ' +
+      'Game lasted ' + turn + ' turns. ' +
+      (graveyard.length ? 'Cards milled: ' + graveyard.slice(0,10).join(', ') + '. ' : '') +
+      (sbAdvice ? 'Sideboard advice was: bring in ' + (sbAdvice.bring_in||[]).map(function(c){return c.card}).join(', ') + '. ' : '') +
+      (myDeck.cards.length ? 'My main deck included: ' + [...new Set(myDeck.cards)].slice(0,15).join(', ') : '')
+    );
+
+    if (analysis) {
+      var wellHTML = (analysis.what_went_well||[]).map(function(w) {
+        return '<div style="display:flex;gap:8px;padding:4px 0;"><span style="color:#4ECFA0;flex-shrink:0;">✓</span><span>' + w + '</span></div>';
+      }).join('');
+      
+      var improveHTML = (analysis.improvements||[]).map(function(i) {
+        return '<div style="display:flex;gap:8px;padding:4px 0;"><span style="color:#F07070;flex-shrink:0;">→</span><span>' + i + '</span></div>';
+      }).join('');
+
+      contentEl.innerHTML = 
+        '<div style="background:rgba(180,150,80,0.08);border:1px solid rgba(180,150,80,0.15);border-radius:6px;padding:10px;margin-bottom:12px;color:#e8dcc8;">' + (analysis.summary||'') + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+          '<div style="font-size:10px;font-weight:600;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;">Performance</div>' +
+          '<div style="flex:1;height:4px;background:rgba(180,150,80,0.1);border-radius:2px;overflow:hidden;">' +
+            '<div style="height:100%;width:' + ((analysis.rating||5)*10) + '%;background:linear-gradient(90deg,#8B6914,#C9A84C);border-radius:2px;"></div>' +
+          '</div>' +
+          '<div style="font-size:12px;font-weight:600;color:#C9A84C;">' + (analysis.rating||5) + '/10</div>' +
+        '</div>' +
+        (wellHTML ? '<div style="font-size:10px;font-weight:600;color:#4ECFA0;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">What went well</div>' + wellHTML + '<div style="height:10px;"></div>' : '') +
+        (improveHTML ? '<div style="font-size:10px;font-weight:600;color:#F07070;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Improvements</div>' + improveHTML + '<div style="height:10px;"></div>' : '') +
+        (analysis.key_moment ? '<div style="background:rgba(91,155,213,0.1);border:1px solid rgba(91,155,213,0.2);border-radius:6px;padding:10px;"><div style="font-size:10px;font-weight:600;color:#5B9BD5;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Key moment</div><div style="color:#e8dcc8;">' + analysis.key_moment + '</div></div>' : '');
+    }
+  } catch(e) {
+    contentEl.innerHTML = '<div style="color:#8a8070;">Could not generate analysis. Check your API key.</div>';
+  }
 }
 
 function closeResult() {
