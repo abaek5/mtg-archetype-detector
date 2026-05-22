@@ -833,6 +833,19 @@ function clearFeed() {
 function newGame() {
   clearAll();
   clearFeed();
+  // Reset seat override so player must re-select each match
+  fetch(FB_URL + '/seat_override.json', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: 'null'
+  }).catch(function(){});
+  // Reset seat buttons
+  var s1 = document.getElementById('seat1-btn');
+  var s2 = document.getElementById('seat2-btn');
+  var si = document.getElementById('seat-indicator');
+  if (s1) { s1.style.background = 'var(--bg-secondary)'; s1.style.color = 'var(--text)'; }
+  if (s2) { s2.style.background = 'var(--bg-secondary)'; s2.style.color = 'var(--text)'; }
+  if (si) si.textContent = 'select seat ↑';
   // Clear game state panel
   const gs = document.getElementById('game-state-panel');
   if (gs) gs.style.display = 'none';
