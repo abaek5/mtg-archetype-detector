@@ -475,21 +475,6 @@ def push_loop():
                 continue
         except Exception:
             pass
-        # Check for manual seat override from browser
-        try:
-            req = urllib.request.Request(
-                f"{FIREBASE_URL}/seat_override.json",
-                headers={"User-Agent": "MTGArchetypeDetector/1.0"}
-            )
-            resp = urllib.request.urlopen(req, timeout=2)
-            seat_data = json.loads(resp.read())
-            if seat_data in (1, 2):
-                with lock:
-                    if state["my_seat"] != seat_data:
-                        state["my_seat"] = seat_data
-                        print(f"  [SEAT ] Override: You are seat {seat_data}, opponent is seat {3-seat_data}")
-        except Exception:
-            pass
         sync_battlefield_to_opponent_cards()
         if time.time() >= reset_hold_until:
             push_to_firebase()
