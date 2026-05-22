@@ -20,7 +20,7 @@ state = {
     "opp_graveyard": [],    # cards milled/killed into opponent graveyard
     "match_game": 1,      # current game in match (1, 2, 3)
     "last_reset": 0,      # timestamp of last reset to prevent rapid resets
-    "my_seat": 0,         # 0=unknown, detected from log
+    "my_seat": 2,         # RagingDachshund is always seat 2
     "_in_client_msg": False,
     "my_hand": [],
     "my_battlefield": [],
@@ -287,7 +287,7 @@ def parse_game_state(msg: dict):
             state["opponent_cards"] = []
             state["opp_graveyard"] = []
             state["instance_map"] = {}
-            state["my_seat"] = 0
+            state["my_seat"] = 2
             state["my_life"] = 20
             state["opp_life"] = 20
             state["last_update"] = time.time()
@@ -444,7 +444,7 @@ def push_loop():
                     state["opponent_cards"] = []
                     state["opp_graveyard"] = []
                     state["instance_map"] = {}
-                    state["my_seat"] = 0
+                    state["my_seat"] = 2
                     state["last_update"] = time.time()
                     print("  [RESET] New game — cleared by browser")
                 # Clear the reset flag in Firebase
