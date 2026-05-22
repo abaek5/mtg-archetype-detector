@@ -49,3 +49,4 @@ Archetypes are defined in the `ALL_ARCHETYPES` array in `index.html`. Each entry
 # Reset fix
 # reset fix
 # fix reset_hold_until scope
+# seat fix
