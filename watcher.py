@@ -162,11 +162,11 @@ def detect_seat_from_chunk(chunk: str):
             if seat_match:
                 seat = int(seat_match.group(1))
                 if seat in (1, 2):
-            with lock:
-                if state["my_seat"] == 0:
-                    state["my_seat"] = seat
-                    print(f"  [SEAT ] Detected by name: You are seat {seat}, opponent is seat {3-seat}")
-            return
+                    with lock:
+                        if state["my_seat"] == 0:
+                            state["my_seat"] = seat
+                            print(f"  [SEAT ] Detected by name: You are seat {seat}, opponent is seat {3-seat}")
+                    return
 
 def detect_seat_from_header(line: str):
     pass  # replaced by detect_seat_from_chunk
