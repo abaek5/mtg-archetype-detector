@@ -347,7 +347,10 @@ canvas#confetti-canvas {
 
 <div class="topbar">
   <div class="topbar-title"><div class="dot"></div> MTG Archetype Detector</div>
-  <div class="topbar-sub">Live match feed</div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div class="topbar-sub">Live match feed</div>
+    <button onclick="toggleHistory()" style="font-size:11px;padding:3px 10px;border-color:rgba(180,150,80,0.3);color:#C9A84C;"><i class="ti ti-history"></i> History</button>
+  </div>
 </div>
 
 <div class="app">
@@ -1316,6 +1319,17 @@ setInterval(pollFirebase, 2000);
 pollFirebase();
 </script>
 
+<!-- Match History Panel -->
+<div id="history-panel" style="display:none;position:fixed;top:45px;right:0;width:480px;height:calc(100vh - 45px);background:#0d1018;border-left:1px solid rgba(180,150,80,0.3);z-index:9980;overflow-y:auto;padding:20px;box-shadow:-4px 0 30px rgba(0,0,0,0.6);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="font-size:14px;font-weight:600;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;">Match History</div>
+    <button onclick="toggleHistory()" style="padding:4px 8px;font-size:11px;">✕ Close</button>
+  </div>
+  <div id="history-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;"></div>
+  <div id="history-by-archetype" style="margin-bottom:16px;"></div>
+  <div id="history-list"></div>
+</div>
+
 <!-- Post-game analysis panel -->
 <div id="postgame-panel" style="display:none;position:fixed;top:0;right:0;width:420px;height:100vh;background:#0d1018;border-left:1px solid rgba(180,150,80,0.3);z-index:9990;overflow-y:auto;padding:20px;box-shadow:-4px 0 30px rgba(0,0,0,0.6);">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -1359,8 +1373,113 @@ async function showMatchResult(won) {
   overlay.classList.add('show');
   setTimeout(closeResult, 6000);
 
-  // Trigger post-game analysis
+  // Save to history and trigger analysis
+  saveMatchToHistory(won);
   triggerPostGameAnalysis(won);
+}
+
+// ── Match History ─────────────────────────────────────────────────────────────
+function saveMatchToHistory(won) {
+  const match = {
+    date: new Date().toISOString(),
+    won: won,
+    deck: document.getElementById('deck-selector') ? document.getElementById('deck-selector').value : 'Unknown',
+    opponent: matchState.archetypeConfirmed ? matchState.archetypeConfirmed.name : 'Unknown',
+    oppCards: opponentCards.slice(0, 8),
+    turns: lastGameState.turn || 0,
+    myLife: lastGameState.my_life || 0,
+    oppLife: lastGameState.opp_life || 0,
+  };
+  const history = getMatchHistory();
+  history.unshift(match);
+  if (history.length > 100) history.pop(); // keep last 100
+  localStorage.setItem('mtgMatchHistory', JSON.stringify(history));
+  renderHistory();
+}
+
+function getMatchHistory() {
+  try { return JSON.parse(localStorage.getItem('mtgMatchHistory') || '[]'); } catch(e) { return []; }
+}
+
+function toggleHistory() {
+  const panel = document.getElementById('history-panel');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) renderHistory();
+}
+
+function renderHistory() {
+  const history = getMatchHistory();
+  const statsEl = document.getElementById('history-stats');
+  const listEl = document.getElementById('history-list');
+  const archetypeEl = document.getElementById('history-by-archetype');
+
+  if (!statsEl) return;
+
+  // Overall stats
+  const total = history.length;
+  const wins = history.filter(m => m.won).length;
+  const winRate = total ? Math.round(wins/total*100) : 0;
+
+  statsEl.innerHTML = [
+    {label: 'Matches', value: total},
+    {label: 'Wins', value: wins},
+    {label: 'Win Rate', value: winRate + '%'},
+  ].map(function(s) {
+    return '<div style="background:#171b26;border:1px solid rgba(180,150,80,0.15);border-radius:6px;padding:10px;text-align:center;">' +
+      '<div style="font-size:10px;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">' + s.label + '</div>' +
+      '<div style="font-size:20px;font-weight:600;color:#e8dcc8;">' + s.value + '</div>' +
+      '</div>';
+  }).join('');
+
+  // Win rate by opponent archetype
+  var byArch = {};
+  history.forEach(function(m) {
+    if (!byArch[m.opponent]) byArch[m.opponent] = {w:0, l:0};
+    if (m.won) byArch[m.opponent].w++; else byArch[m.opponent].l++;
+  });
+  var archEntries = Object.entries(byArch).sort(function(a,b) { return (b[1].w+b[1].l)-(a[1].w+a[1].l); }).slice(0,8);
+  
+  if (archEntries.length) {
+    archetypeEl.innerHTML = '<div style="font-size:10px;font-weight:600;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">By Opponent Archetype</div>' +
+      archEntries.map(function(e) {
+        var name = e[0], d = e[1];
+        var wr = Math.round(d.w/(d.w+d.l)*100);
+        var color = wr >= 60 ? '#4ECFA0' : wr >= 40 ? '#C9A84C' : '#F07070';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(180,150,80,0.08);">' +
+          '<div style="flex:1;font-size:12px;color:#e8dcc8;">' + name + '</div>' +
+          '<div style="font-size:11px;color:#8a8070;">' + d.w + 'W ' + d.l + 'L</div>' +
+          '<div style="font-size:12px;font-weight:600;color:' + color + ';min-width:36px;text-align:right;">' + wr + '%</div>' +
+          '</div>';
+      }).join('');
+  } else {
+    archetypeEl.innerHTML = '';
+  }
+
+  // Match list
+  if (!history.length) {
+    listEl.innerHTML = '<div style="color:#8a8070;font-size:12px;text-align:center;padding:20px;">No matches recorded yet.<br>Click Win or Loss after each match.</div>';
+    return;
+  }
+
+  listEl.innerHTML = '<div style="font-size:10px;font-weight:600;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">Recent Matches</div>' +
+    history.slice(0,30).map(function(m) {
+      var date = new Date(m.date);
+      var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      var resultColor = m.won ? '#4ECFA0' : '#F07070';
+      var resultText = m.won ? 'W' : 'L';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(180,150,80,0.08);">' +
+        '<div style="width:20px;height:20px;border-radius:50%;background:' + (m.won?'rgba(29,158,117,0.2)':'rgba(226,75,74,0.2)') + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:' + resultColor + ';flex-shrink:0;">' + resultText + '</div>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:12px;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (m.deck||'?') + ' vs ' + (m.opponent||'?') + '</div>' +
+          '<div style="font-size:10px;color:#8a8070;">' + dateStr + (m.turns ? ' · ' + m.turns + ' turns' : '') + '</div>' +
+        '</div>' +
+        '</div>';
+    }).join('') +
+    (history.length > 30 ? '<div style="font-size:11px;color:#8a8070;text-align:center;padding:8px;">+ ' + (history.length-30) + ' more matches</div>' : '') +
+    '<div style="margin-top:12px;">' +
+    '<button onclick="if(confirm('Clear all match history?')){{localStorage.removeItem('mtgMatchHistory');renderHistory();}}" style="font-size:11px;color:#F07070;border-color:rgba(226,75,74,0.2);width:100%;justify-content:center;">Clear History</button>' +
+    '</div>';
 }
 
 async function triggerPostGameAnalysis(won) {
