@@ -509,9 +509,17 @@ def watch_log():
         f.seek(0, 2)
         print("Ready — watching for game events...\n")
         buf = ""
+        seat_buf = ""  # separate buffer for seat detection across large chunks
         while True:
-            chunk = f.read(65536)
+            chunk = f.read(131072)  # 128KB chunks
             if chunk:
+                # Seat detection on raw chunk before splitting
+                seat_buf += chunk
+                if MY_PLAYER_NAME in seat_buf:
+                    detect_seat_from_chunk(seat_buf)
+                    seat_buf = ""  # reset after detection
+                elif len(seat_buf) > 262144:
+                    seat_buf = seat_buf[-131072:]  # keep last 128KB
                 buf += chunk
                 lines = buf.split("\n")
                 buf = lines[-1]
