@@ -141,7 +141,7 @@ def lookup_grp(grp_id: int):
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Parse game state messages ──────────────────────────────────────────────────
-MY_PLAYER_NAME = "abaek5"  # Your Arena username
+MY_PLAYER_NAME = "RagingDachshund"  # Your Arena screenName
 
 def detect_seat_from_chunk(chunk: str):
     """Detect our seat by matching our player name to a seat number in the log."""
@@ -151,11 +151,17 @@ def detect_seat_from_chunk(chunk: str):
             return
     # Look for playerName + systemSeatId pairs in the chunk
     # Arena logs player info as: "playerName": "username" ... "systemSeatId": N
-    matches = list(re.finditer(r'"playerName"\s*:\s*"([^"]+)".*?"systemSeatId"\s*:\s*(\d+)', chunk, re.DOTALL))
-    for m in matches:
-        name = m.group(1)
-        seat = int(m.group(2))
-        if name.lower() == MY_PLAYER_NAME.lower() and seat in (1, 2):
+    # screenName appears in authenticateResponse, seat in match player info
+    # Find our clientId first
+    client_match = re.search(r'"screenName"\s*:\s*"([^"]+)"', chunk)
+    if client_match:
+        name = client_match.group(1)
+        if name.lower() == MY_PLAYER_NAME.lower():
+            # Now find seat from playerData that matches our clientId
+            seat_match = re.search(r'"systemSeatId"\s*:\s*(\d+)', chunk)
+            if seat_match:
+                seat = int(seat_match.group(1))
+                if seat in (1, 2):
             with lock:
                 if state["my_seat"] == 0:
                     state["my_seat"] = seat
