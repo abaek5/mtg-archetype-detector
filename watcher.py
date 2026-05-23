@@ -144,29 +144,8 @@ def lookup_grp(grp_id: int):
 MY_PLAYER_NAME = "RagingDachshund"  # Your Arena screenName
 
 def detect_seat_from_chunk(chunk: str):
-    """Detect our seat by matching our player name to a seat number in the log."""
-    import re
-    with lock:
-        if state["my_seat"] != 0:
-            return
-    # Look for playerName + systemSeatId pairs in the chunk
-    # Arena logs player info as: "playerName": "username" ... "systemSeatId": N
-    # screenName appears in authenticateResponse, seat in match player info
-    # Find our clientId first
-    client_match = re.search(r'"screenName"\s*:\s*"([^"]+)"', chunk)
-    if client_match:
-        name = client_match.group(1)
-        if name.lower() == MY_PLAYER_NAME.lower():
-            # Now find seat from playerData that matches our clientId
-            seat_match = re.search(r'"systemSeatId"\s*:\s*(\d+)', chunk)
-            if seat_match:
-                seat = int(seat_match.group(1))
-                if seat in (1, 2):
-                    with lock:
-                        if state["my_seat"] == 0:
-                            state["my_seat"] = seat
-                            print(f"  [SEAT ] Detected by name: You are seat {seat}, opponent is seat {3-seat}")
-                    return
+    pass  # seat hardcoded to 2 — detection disabled
+
 
 def detect_seat_from_header(line: str):
     pass  # replaced by detect_seat_from_chunk
@@ -439,8 +418,11 @@ def push_to_firebase():
     except Exception as e:
         print(f"  [WARN] Firebase sync failed: {e}")
 
+reset_hold_until = 0
+
 def push_loop():
     """Push to Firebase every 2 seconds. Check for reset flag from browser."""
+    global reset_hold_until
     while True:
         # Check for explicit reset signal from New game button
         try:
