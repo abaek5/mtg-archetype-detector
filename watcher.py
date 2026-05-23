@@ -196,6 +196,12 @@ def parse_game_state(msg: dict):
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Graveyard"
+                        # If card has no name yet but has grpId, add to graveyard now if resolved
+                        info = state["instance_map"][iid]
+                        if not info.get("name") and info.get("grpId"):
+                            resolved = state["grp_map"].get(info["grpId"])
+                            if resolved:
+                                info["name"] = resolved
                     else:
                         # Register unknown instances in graveyard (milled cards)
                         state["instance_map"][iid] = {
@@ -248,7 +254,16 @@ def parse_game_state(msg: dict):
             if zt == "Hand" and owner == my_seat and not is_token:
                 my_hand.append(name)
             elif zt == "Graveyard" and owner == opp_seat and not is_token:
-                if name not in state["opp_graveyard"] and name not in SKIP_NAMES:
+                if not name:
+                    # Try to resolve via grpId
+                    grpid = info.get("grpId")
+                    if grpid:
+                        name = state["grp_map"].get(grpid)
+                        if name:
+                            info["name"] = name
+                        else:
+                            lookup_grp(grpid)
+                if name and name not in state["opp_graveyard"] and name not in SKIP_NAMES:
                     state["opp_graveyard"].append(name)
                     print(f"  [GRAVE] Opponent graveyard: {name}")
             elif zt == "Battlefield":
