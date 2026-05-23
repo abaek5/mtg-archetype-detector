@@ -1341,7 +1341,7 @@ async function pollFirebase() {
       .filter(function(e) { return e.owner !== MY_SEAT; })
       .map(function(e) { return e.name; });
     
-    // Merge with graveyard cards
+    // Always include graveyard cards — these are always opponent's (milled cards)
     var allOppCards = [...new Set([...oppFromCast, ...(data.opp_graveyard||[])])];
     
     const newCards = allOppCards.filter(c => !lastSeenCards.includes(c));
@@ -1377,10 +1377,10 @@ async function resetWatcher() {
   try {
     // Write empty state directly AND set reset flag
     const emptyState = JSON.stringify({
-      opponent_cards: [], opp_graveyard: [], my_hand: [],
-      my_battlefield: [], opp_battlefield: [],
+      all_cast_cards: [], opponent_cards: [], opp_graveyard: [],
+      my_hand: [], my_battlefield: [], opp_battlefield: [],
       phase: '', turn: 0, my_life: 20, opp_life: 20,
-      last_update: Date.now()/1000, match_game: 1
+      last_update: Date.now()/1000, match_game: 1, my_seat: 0
     });
     await Promise.all([
       fetch(FB_URL + '/state.json', {
