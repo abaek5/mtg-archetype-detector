@@ -137,8 +137,11 @@ def parse_game_state(msg: dict):
             tapped = obj.get("isTapped", False)
             power  = obj.get("power") or obj.get("powerValue")
             tough  = obj.get("toughness") or obj.get("toughnessValue")
-            ctypes = [t.get("type","") for t in obj.get("cardTypes", [])] \
-                     or obj.get("cardTypes", [])
+            raw_ctypes = obj.get("cardTypes", [])
+            if raw_ctypes and isinstance(raw_ctypes[0], dict):
+                ctypes = [t.get("type", "") for t in raw_ctypes]
+            else:
+                ctypes = raw_ctypes
             token  = obj.get("isToken", False) or obj.get("type","") == "GameObjectType_Token"
             if not iid:
                 continue
