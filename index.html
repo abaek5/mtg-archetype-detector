@@ -1333,11 +1333,11 @@ async function pollFirebase() {
     const data = await resp.json();
     if (!data) { updateWatcherStatus(false); return; }
 
-    // Filter cast cards by owner seat — seat 2 is always the player
-    const MY_SEAT = 2;
+    // Filter cast cards by owner seat — use seat from Firebase
+    const MY_SEAT = data.my_seat || 0;
     var allCast = data.all_cast_cards || [];
     
-    var oppFromCast = allCast
+    var oppFromCast = MY_SEAT === 0 ? [] : allCast
       .filter(function(e) { return e.owner !== MY_SEAT; })
       .map(function(e) { return e.name; });
     
