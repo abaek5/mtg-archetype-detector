@@ -88,6 +88,13 @@ def parse_game_state(msg: dict):
         return
 
     with lock:
+        # Skip if we're in reset hold period
+        if time.time() < state.get("reset_time", 0) + 12:
+            # Only process new turn 1 events (new match starting)
+            ti = gm.get("turnInfo", {})
+            if ti.get("turnNumber", 0) != 1:
+                return
+
         my_seat  = state["my_seat"]
         if my_seat == 0:
             return  # wait for seat detection
@@ -346,6 +353,7 @@ def push_loop():
                     state["my_seat"]        = 0
                     state["my_life"]  = 20
                     state["opp_life"] = 20
+                    state["reset_time"] = time.time()
                     state["last_update"] = time.time()
                     print("  [RESET] New game — cleared by browser")
                 push_to_firebase()
