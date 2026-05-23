@@ -341,6 +341,8 @@ def parse_chunk(text: str):
             obj = json.loads(line)
         except Exception:
             continue
+        if not isinstance(obj, dict):
+            continue
         # greToClientEvent contains game state messages
         evt = obj.get("greToClientEvent", {})
         for msg in evt.get("greToClientMessages", []):
