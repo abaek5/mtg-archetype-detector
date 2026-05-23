@@ -196,6 +196,10 @@ def parse_game_state(msg: dict):
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Graveyard"
+                    else:
+                        # Register unknown instances in graveyard (milled cards)
+                        state["instance_map"][iid] = {
+                            "zone_type": "Graveyard", "owner": opp_seat, "name": None}
 
         # CastSpell annotations — track ALL cast cards with owner
         for ann in gm.get("annotations", []):
