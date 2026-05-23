@@ -1346,10 +1346,15 @@ async function pollFirebase() {
     // Always include graveyard cards — these are always opponent's (milled cards)
     var allOppCards = [...new Set([...oppFromCast, ...(data.opp_graveyard||[])])];
     
-    const newCards = allOppCards.filter(c => !lastSeenCards.includes(c));
+    // Dedupe using Set for O(1) lookup
+    const seenSet = new Set(lastSeenCards);
+    const oppSet = new Set(opponentCards);
+    const newCards = allOppCards.filter(c => !seenSet.has(c));
     for (const card of newCards) {
-      if (!opponentCards.includes(card)) {
+      if (myRequestId !== pollRequestId) return;  // abort if new game started
+      if (!oppSet.has(card)) {
         opponentCards.push(card);
+        oppSet.add(card);
         renderTags();
         await triggerAnalysis(card);
         await new Promise(r => setTimeout(r, 300));
