@@ -423,6 +423,18 @@ canvas#confetti-canvas {
       <span style="color:var(--text-secondary)"><i class="ti ti-wifi-off" style="font-size:13px;vertical-align:-2px"></i> Start watcher.py to connect</span>
     </div>
 
+    <!-- Mulligan Advisor -->
+    <div id="mulligan-panel" style="display:none;background:#0d1018;border:1px solid rgba(180,150,80,0.2);border-radius:8px;padding:10px 12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:11px;font-weight:600;color:#C9A84C;letter-spacing:0.08em;text-transform:uppercase;">Opening Hand</div>
+        <button onclick="document.getElementById('mulligan-panel').style.display='none'" style="padding:2px 6px;font-size:10px;color:#8a8070;">✕</button>
+      </div>
+      <div id="mulligan-hand" style="font-size:11px;color:#8a8070;margin-bottom:8px;"></div>
+      <div id="mulligan-verdict" style="margin-bottom:6px;"></div>
+      <div id="mulligan-reasoning" style="font-size:11px;color:#8a8070;line-height:1.6;"></div>
+      <button onclick="triggerMulliganAdvice()" style="width:100%;justify-content:center;font-size:11px;margin-top:6px;"><i class="ti ti-refresh"></i> Re-analyze</button>
+    </div>
+
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto;">
       <div style="display:flex;gap:5px;margin-bottom:4px;">
         <button onclick="showMatchResult(true)" style="flex:1;justify-content:center;font-size:12px;color:#085041;border-color:#1D9E75;"><i class="ti ti-trophy"></i> Win</button>
@@ -884,6 +896,9 @@ function newGame() {
   matchState = { game: 1, archetypeConfirmed: null, sideboardAdvice: null };
   lastAdvisorPhase = '';
   lastAdvisorTurn = 0;
+  mulliganAnalyzed = false;
+  const mp = document.getElementById('mulligan-panel');
+  if (mp) mp.style.display = 'none';
 }
 
 function setWatcherUrl() {
@@ -1353,6 +1368,7 @@ async function pollFirebase() {
     lastSeenCards = allOppCards;
     renderGameState(data);
     updateThreatAssessment(data);
+    checkForOpeningHand(data);
     updatePlayAdvisor(data);
     lastGameState = data;
     // Show connected if we got valid data regardless of timestamp age
@@ -1475,6 +1491,98 @@ async function showMatchResult(won) {
   // Save to history and trigger analysis
   saveMatchToHistory(won);
   triggerPostGameAnalysis(won);
+}
+
+// ── Mulligan Advisor ──────────────────────────────────────────────────────────
+var lastMulliganHand = [];
+var mulliganAnalyzed = false;
+
+async function triggerMulliganAdvice() {
+  const hand = lastGameState.my_hand || [];
+  if (!hand.length) return;
+
+  const panel = document.getElementById('mulligan-panel');
+  const handEl = document.getElementById('mulligan-hand');
+  const verdictEl = document.getElementById('mulligan-verdict');
+  const reasonEl = document.getElementById('mulligan-reasoning');
+
+  panel.style.display = 'block';
+
+  // Show hand cards
+  handEl.innerHTML = hand.map(function(c) {
+    return '<div style="padding:2px 0;border-bottom:1px solid rgba(180,150,80,0.08);">' + c + '</div>';
+  }).join('');
+
+  const key = getApiKey();
+  if (!key) {
+    verdictEl.innerHTML = '<div style="color:#8a8070;font-size:11px;">Add API key for mulligan advice.</div>';
+    return;
+  }
+  if (!myDeck.cards.length) {
+    verdictEl.innerHTML = '<div style="color:#8a8070;font-size:11px;">Load your deck for mulligan advice.</div>';
+    return;
+  }
+
+  verdictEl.innerHTML = '<div style="color:#C9A84C;font-size:11px;">Analyzing hand...</div>';
+  reasonEl.innerHTML = '';
+
+  const archetype = matchState.archetypeConfirmed ? matchState.archetypeConfirmed.name : 'Unknown';
+  const deckName = document.getElementById('deck-selector') ? document.getElementById('deck-selector').value : '';
+
+  try {
+    const advice = await callClaude(
+      'You are an expert MTG mulligan advisor. Evaluate the opening hand and give a clear keep/mulligan recommendation. Respond ONLY with valid JSON: {verdict: "KEEP" or "MULLIGAN" or "BORDERLINE", confidence: 1-10, key_cards: [string], missing: string, reasoning: string}',
+      'My deck: ' + deckName + '. My hand (7 cards): ' + hand.join(', ') +
+      '. My full deck includes: ' + [...new Set(myDeck.cards)].slice(0, 20).join(', ') +
+      '. Opponent archetype: ' + archetype +
+      '. Lands in hand: ' + hand.filter(function(c) {
+        return c.toLowerCase().includes('land') ||
+          ['plains','island','swamp','mountain','forest','pathway','shore','grove','fountain','tomb','crypt','gate','vale','ridge','cascade','foundry','grave','strand','tarn','delta','fetch'].some(function(l) { return c.toLowerCase().includes(l); });
+      }).length,
+      true  // use Haiku for speed
+    );
+
+    if (advice) {
+      var verdictColor = advice.verdict === 'KEEP' ? '#4ECFA0' :
+                         advice.verdict === 'MULLIGAN' ? '#F07070' : '#C9A84C';
+      var verdictIcon = advice.verdict === 'KEEP' ? '✓ KEEP' :
+                        advice.verdict === 'MULLIGAN' ? '✕ MULLIGAN' : '~ BORDERLINE';
+
+      verdictEl.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<div style="font-size:16px;font-weight:700;color:' + verdictColor + ';">' + verdictIcon + '</div>' +
+          '<div style="flex:1;height:4px;background:rgba(180,150,80,0.1);border-radius:2px;overflow:hidden;">' +
+            '<div style="height:100%;width:' + ((advice.confidence||5)*10) + '%;background:' + verdictColor + ';border-radius:2px;"></div>' +
+          '</div>' +
+          '<div style="font-size:11px;color:' + verdictColor + ';">' + (advice.confidence||5) + '/10</div>' +
+        '</div>';
+
+      var keyCardsHTML = (advice.key_cards||[]).length ?
+        '<div style="margin-top:6px;font-size:10px;color:#C9A84C;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:3px;">Key cards</div>' +
+        (advice.key_cards||[]).map(function(c) {
+          return '<span style="background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.2);border-radius:4px;padding:1px 6px;font-size:10px;color:#C9A84C;margin-right:4px;">' + c + '</span>';
+        }).join('') : '';
+
+      var missingHTML = advice.missing ?
+        '<div style="margin-top:6px;font-size:11px;color:#8a8070;"><span style="color:#F07070;">Missing:</span> ' + advice.missing + '</div>' : '';
+
+      reasonEl.innerHTML = keyCardsHTML + missingHTML +
+        '<div style="margin-top:6px;">' + (advice.reasoning||'') + '</div>';
+    }
+  } catch(e) {
+    verdictEl.innerHTML = '<div style="color:#8a8070;font-size:11px;">Could not analyze — check API key.</div>';
+  }
+}
+
+function checkForOpeningHand(gameState) {
+  if (!gameState || !gameState.my_hand) return;
+  var hand = gameState.my_hand;
+  // Fire on first hand detection (7 cards = opening hand before mulligan)
+  if (hand.length >= 5 && !mulliganAnalyzed) {
+    mulliganAnalyzed = true;
+    lastMulliganHand = hand.slice();
+    triggerMulliganAdvice();
+  }
 }
 
 // ── Match History ─────────────────────────────────────────────────────────────
