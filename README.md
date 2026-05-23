@@ -52,3 +52,4 @@ Archetypes are defined in the `ALL_ARCHETYPES` array in `index.html`. Each entry
 # seat fix
 # line by line seat fix
 # regex fix
+# disable seat detection
