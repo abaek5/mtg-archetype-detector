@@ -599,9 +599,11 @@ function getApiKey() {
   return localStorage.getItem('mtgApiKey') || '';
 }
 
-async function callClaude(system, userMsg) {
+async function callClaude(system, userMsg, fast) {
   const key = getApiKey();
   if (!key) return null;
+  // Use Haiku for high-frequency calls (play advisor), Sonnet for analysis
+  const model = fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20251014";
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -610,7 +612,7 @@ async function callClaude(system, userMsg) {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true"
     },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system, messages: [{role:"user",content:userMsg}] })
+    body: JSON.stringify({ model, max_tokens: 600, system, messages: [{role:"user",content:userMsg}] })
   });
   const data = await resp.json();
   const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
