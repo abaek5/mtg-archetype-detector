@@ -37,7 +37,7 @@ state = {
     "match_game": 1,
     "grp_map":      {},     # grpId -> card name
     "instance_map": {},     # instanceId -> info dict
-    "my_seat": 2,           # hardcoded — RagingDachshund is seat 2
+    "my_seat": 0,           # detected from log each match
 }
 
 # ── Scryfall card name lookup ─────────────────────────────────────────────────
@@ -89,6 +89,8 @@ def parse_game_state(msg: dict):
 
     with lock:
         my_seat  = state["my_seat"]
+        if my_seat == 0:
+            return  # wait for seat detection
         opp_seat = 1 if my_seat == 2 else 2
 
         # Turn info
@@ -103,6 +105,7 @@ def parse_game_state(msg: dict):
             state["all_cast_cards"] = []
             state["opp_graveyard"]  = []
             state["instance_map"]   = {}
+            state["my_seat"]        = 0
             state["my_life"]  = 20
             state["opp_life"] = 20
             print(f"  [GAME  ] Game {state['match_game']} started")
@@ -279,6 +282,7 @@ def push_to_firebase():
                 "opp_life":       state["opp_life"],
                 "last_update":    state["last_update"],
                 "match_game":     state["match_game"],
+                "my_seat":        state["my_seat"],
             }).encode()
         req = urllib.request.Request(
             f"{FIREBASE_URL}/state.json",
@@ -320,6 +324,7 @@ def push_loop():
                     state["all_cast_cards"] = []
                     state["opp_graveyard"]  = []
                     state["instance_map"]   = {}
+                    state["my_seat"]        = 0
                     state["my_life"]  = 20
                     state["opp_life"] = 20
                     state["last_update"] = time.time()
@@ -336,10 +341,28 @@ def push_loop():
         time.sleep(2)
 
 # ── Log watcher ───────────────────────────────────────────────────────────────
+def detect_seat(line: str):
+    """Find RagingDachshund in matchGameRoomStateChangedEvent and get their seat."""
+    if "RagingDachshund" not in line:
+        return
+    import re
+    # Pattern: "playerName":"RagingDachshund", "systemSeatId": N
+    for m in re.finditer(r'"playerName"\s*:\s*"RagingDachshund"\s*,\s*"systemSeatId"\s*:\s*(\d+)', line):
+        seat = int(m.group(1))
+        if seat in (1, 2):
+            with lock:
+                if state["my_seat"] != seat:
+                    state["my_seat"] = seat
+                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+            return
+
 def parse_chunk(text: str):
     for line in text.split("\n"):
         if not line.strip():
             continue
+        # Detect seat from matchGameRoomStateChangedEvent
+        if "RagingDachshund" in line and "systemSeatId" in line:
+            detect_seat(line)
         try:
             obj = json.loads(line)
         except Exception:
