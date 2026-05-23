@@ -1333,28 +1333,16 @@ async function pollFirebase() {
     const data = await resp.json();
     if (!data) { updateWatcherStatus(false); return; }
 
-    // Filter cast cards by deck — anything NOT in my deck is opponent's
-    const myDeckSet = new Set((myDeck.cards||[]).concat(myDeck.sideboard||[]).map(c => c.toLowerCase().trim()));
-    
-    // Use all_cast_cards if available (new format), fall back to opponent_cards
+    // Filter cast cards by owner seat — seat 2 is always the player
+    const MY_SEAT = 2;
     var allCast = data.all_cast_cards || [];
+    
     var oppFromCast = allCast
-      .filter(function(e) {
-        var name = (e.name||'').toLowerCase().trim();
-        // If we have a deck loaded, filter by it; otherwise include all
-        return myDeckSet.size === 0 || !myDeckSet.has(name);
-      })
+      .filter(function(e) { return e.owner !== MY_SEAT; })
       .map(function(e) { return e.name; });
     
-    // Merge with graveyard cards and legacy opponent_cards
-    var allOppCards = [...new Set([...oppFromCast, ...(data.opp_graveyard||[]), ...(data.opponent_cards||[])])];
-    
-    // Further filter: remove any card that IS in my deck
-    if (myDeckSet.size > 0) {
-      allOppCards = allOppCards.filter(function(c) {
-        return !myDeckSet.has(c.toLowerCase().trim());
-      });
-    }
+    // Merge with graveyard cards
+    var allOppCards = [...new Set([...oppFromCast, ...(data.opp_graveyard||[])])];
     
     const newCards = allOppCards.filter(c => !lastSeenCards.includes(c));
     for (const card of newCards) {
