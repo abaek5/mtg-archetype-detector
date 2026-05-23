@@ -17,6 +17,7 @@ SCRYFALL_BULK = Path(os.path.expandvars(r"%TEMP%\mtga_cards.json"))
 # ── Shared state ───────────────────────────────────────────────────────────────
 state = {
     "opponent_cards": [],
+    "all_cast_cards": [],   # all cast cards with owner, filtered by site
     "opp_graveyard": [],    # cards milled/killed into opponent graveyard
     "match_game": 1,      # current game in match (1, 2, 3)
     "last_reset": 0,      # timestamp of last reset to prevent rapid resets
@@ -396,6 +397,7 @@ def push_to_firebase():
         with lock:
             payload = json.dumps({
                 # Merge cast cards + graveyard for richer archetype data
+                "all_cast_cards":  state.get("all_cast_cards", []),
                 "opponent_cards":  list(dict.fromkeys(state["opponent_cards"] + state["opp_graveyard"])),
                 "opp_graveyard":   state["opp_graveyard"],
                 "my_hand":         state["my_hand"],
@@ -435,6 +437,7 @@ def push_loop():
             if data is True:
                 with lock:
                     state["opponent_cards"] = []
+                    state["all_cast_cards"] = []
                     state["opp_graveyard"] = []
                     state["instance_map"] = {}
                     state["my_seat"] = 2
