@@ -1344,8 +1344,13 @@ async function pollFirebase() {
       .map(function(e) { return e.name; });
     
     // Always include graveyard cards — these are always opponent's (milled cards)
-    var graveyardCards = data.opp_graveyard || [];
-    var allOppCards = [...new Set([...oppFromCast, ...graveyardCards])];
+    // Bug #6 fix: merge opp_graveyard AND graveyard_cards for complete picture
+    var graveyardNames = data.opp_graveyard || [];
+    var graveyardCardNames = (data.graveyard_cards || [])
+      .filter(function(c) { return MY_SEAT === 0 || c.owner !== MY_SEAT; })
+      .map(function(c) { return c.name; })
+      .filter(Boolean);
+    var allOppCards = [...new Set([...oppFromCast, ...graveyardNames, ...graveyardCardNames])];
     
     // Find truly new cards — not yet in opponentCards
     const oppSet = new Set(opponentCards);

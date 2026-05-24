@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 MTG Arena Watcher — generation-scoped, stale-packet resistant.
+Fixes: pending graveyard resolution, age-based GC, chronological cast list,
+       preserved event log across resets, configurable player name.
 """
 
 import json
@@ -12,8 +14,9 @@ import urllib.request
 from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-FIREBASE_URL = "https://mtg-detector-40285-default-rtdb.firebaseio.com"
-LOG_PATH = Path(os.path.expandvars(
+FIREBASE_URL  = "https://mtg-detector-40285-default-rtdb.firebaseio.com"
+PLAYER_NAME   = os.environ.get("MTGA_PLAYER_NAME", "RagingDachshund")
+LOG_PATH      = Path(os.path.expandvars(
     r"%APPDATA%\..\LocalLow\Wizards of the Coast\MTGA\Player.log"
 ))
 SKIP_NAMES = {"", "Plains", "Island", "Swamp", "Mountain", "Forest"}
@@ -24,27 +27,36 @@ state = {
     "generation":   0,
     "match_id":     None,
     "match_start":  0,
-    "all_cast_cards": {},      # keyed by cast_key — generation-scoped
-    "opp_graveyard":  set(),   # set for O(1) dedup
+
+    # Bug #4 fix: list (not dict) for stable chronological order
+    "all_cast_cards": [],
+    "cast_seen":      set(),   # (generation, iid) — prevent exact replay only
+
+    "opp_graveyard":   set(),
+    "graveyard_cards": {},     # (generation, iid) -> card info
+
+    # Bug #7 fix: large event log
+    "event_log":       [],
+    "next_event_id":   0,
+
     "my_hand":        [],
     "my_battlefield": [],
     "opp_battlefield":[],
-    "phase":          "",
-    "turn":           0,
-    "my_life":        20,
-    "opp_life":       20,
-    "last_update":    0,
-    "match_game":     1,
-    "grp_map":        {},
-    "instance_map":   {},
-    "zone_map":       {},
-    "my_seat":        0,
-    "reset_time":     0,
+
+    "phase":        "",
+    "turn":         0,
+    "my_life":      20,
+    "opp_life":     20,
+    "last_update":  0,
+    "match_game":   1,
+
+    "grp_map":      {},
+    "instance_map": {},
+    "zone_map":     {},   # persisted across resets — zone IDs are stable
+
+    "my_seat":      0,
+    "reset_time":   0,
     "ignored_generations": set(),
-    "graveyard_cards": {},     # (generation, iid) -> card info
-    "event_log":       [],     # chronological event history
-    "next_event_id":   0,
-    "cast_seen":       set(),  # (generation, iid) seen — prevent exact replay dedup only
 }
 
 # ── Hard reset ────────────────────────────────────────────────────────────────
@@ -52,26 +64,40 @@ def hard_reset_state(reason="manual"):
     old_gen = state["generation"]
     state["ignored_generations"].add(old_gen)
     state["generation"] += 1
-    state["all_cast_cards"] = {}
+    gen = state["generation"]
+
+    state["all_cast_cards"] = []
+    state["cast_seen"]      = set()
+
     state["opp_graveyard"]  = set()
+
+    # Bug #2 fix: preserve graveyard_cards from current generation, don't wipe
+    state["graveyard_cards"] = {
+        k: v for k, v in state["graveyard_cards"].items()
+        if v.get("generation") == gen
+    }
+
     state["instance_map"]   = {}
     # zone_map intentionally preserved — zone IDs are stable per Arena session
+
     state["my_hand"]        = []
     state["my_battlefield"] = []
     state["opp_battlefield"]= []
+
     state["phase"]          = ""
     state["turn"]           = 0
     state["my_life"]        = 20
     state["opp_life"]       = 20
     state["my_seat"]        = 0
-    state["graveyard_cards"] = {}
-    state["event_log"]       = []
-    state["next_event_id"]   = 0
-    state["cast_seen"]       = set()
-    state["match_start"]     = time.time()
-    state["reset_time"]      = time.time()
-    state["last_update"]     = time.time()
-    print(f"  [RESET] generation={state['generation']} reason={reason}")
+
+    # Bug #2 fix: preserve event log (trim, don't clear)
+    state["event_log"]      = state["event_log"][-500:]
+
+    state["match_start"]    = time.time()
+    state["reset_time"]     = time.time()
+    state["last_update"]    = time.time()
+
+    print(f"  [RESET] generation={gen} reason={reason}")
 
 # ── Scryfall lookup ───────────────────────────────────────────────────────────
 def lookup_grp(grp_id: int):
@@ -90,26 +116,62 @@ def lookup_grp(grp_id: int):
             with lock:
                 state["grp_map"][grp_id] = name
                 print(f"  [RESOLVED] grp={grp_id} -> {name}")
-                gen = state["generation"]
+                gen      = state["generation"]
+                my_seat  = state["my_seat"]
+                opp_seat = (1 if my_seat == 2 else 2) if my_seat != 0 else 0
+
                 for iid, info in state["instance_map"].items():
-                    if (info.get("grpId") == grp_id
-                            and info.get("pending_add")
-                            and info.get("generation") == gen):
+                    if info.get("grpId") != grp_id:
+                        continue
+                    if info.get("generation") != gen:
+                        continue
+                    info["name"] = name
+
+                    # Resolve pending cast
+                    if info.get("pending_add"):
                         info["pending_add"] = False
-                        info["name"] = name
                         owner  = info.get("owner")
                         ctypes = info.get("cardTypes", [])
                         token  = info.get("token", False)
-                        if ("CardType_Land" not in ctypes
-                                and not token
-                                and name not in SKIP_NAMES):
-                            cast_key = f"{gen}:{iid}:{owner}:{name}"
-                            state["all_cast_cards"][cast_key] = {
+                        if "CardType_Land" not in ctypes and not token and name not in SKIP_NAMES:
+                            cast_key = (gen, iid)
+                            if cast_key not in state["cast_seen"]:
+                                state["cast_seen"].add(cast_key)
+                                state["all_cast_cards"].append({
+                                    "name": name, "owner": owner,
+                                    "iid": iid, "generation": gen,
+                                    "turn": state["turn"],
+                                    "event_id": state["next_event_id"],
+                                })
+                                state["next_event_id"] += 1
+                                state["last_update"] = time.time()
+                                print(f"  [LATE ] seat={owner}: {name}")
+
+                    # Bug #1 fix: resolve pending graveyard
+                    if info.get("pending_graveyard"):
+                        info["pending_graveyard"] = False
+                        owner = info.get("owner")
+                        gy_key = (gen, iid)
+                        if gy_key not in state["graveyard_cards"]:
+                            state["graveyard_cards"][gy_key] = {
                                 "name": name, "owner": owner,
-                                "iid": iid, "generation": gen,
+                                "turn": state["turn"],
+                                "source": "mill_pending_resolve",
+                                "generation": gen,
                             }
+                            if opp_seat != 0 and owner == opp_seat:
+                                state["opp_graveyard"].add(name)
+                                print(f"  [GRAVE] (mill-resolved) seat={owner}: {name}")
+                            state["event_log"].append({
+                                "id": state["next_event_id"],
+                                "generation": gen,
+                                "turn": state["turn"],
+                                "event": "graveyard",
+                                "card": name, "owner": owner,
+                                "source": "mill_pending_resolve",
+                            })
+                            state["next_event_id"] += 1
                             state["last_update"] = time.time()
-                            print(f"  [LATE ] seat={owner}: {name}")
         except Exception as e:
             print(f"  [ERR  ] Scryfall lookup grp={grp_id}: {e}")
     threading.Thread(target=_fetch, daemon=True).start()
@@ -121,7 +183,7 @@ def parse_game_state(msg: dict):
         return
 
     with lock:
-        # Stale packet suppression — block ALL events during reset window
+        # Block ALL events during reset window
         if time.time() < state.get("reset_time", 0) + 8:
             return
 
@@ -146,8 +208,7 @@ def parse_game_state(msg: dict):
             if state["match_game"] > 3:
                 state["match_game"] = 1
             hard_reset_state("new_game")
-            print(f"  [GAME ] New game detected")
-            return  # let next packet start fresh
+            return
 
         if cur_turn:
             state["turn"] = cur_turn
@@ -171,12 +232,7 @@ def parse_game_state(msg: dict):
                 elif seat == opp_seat:
                     state["opp_life"] = life
 
-        # Zone map
-        for z in gm.get("zones", []):
-            zid   = z.get("zoneId")
-            ztype = z.get("type", "")
-            if zid and ztype:
-                state["zone_map"][zid] = ztype.replace("ZoneType_", "")
+        now = time.time()
 
         # Update instance map from gameObjects — generation-scoped
         for obj in gm.get("gameObjects", []):
@@ -199,69 +255,65 @@ def parse_game_state(msg: dict):
             existing = state["instance_map"].get(iid, {})
             inferred_zone = state["zone_map"].get(zone, existing.get("zone_type", ""))
             state["instance_map"][iid] = {
-                "generation": packet_generation,
-                "grpId":     grpid,
-                "name":      name,
-                "owner":     owner,
-                "zoneId":    zone,
-                "zone_type": inferred_zone,
-                "tapped":    tapped,
-                "power":     power,
-                "toughness": tough,
-                "cardTypes": ctypes,
-                "token":     token,
-                "pending_add": existing.get("pending_add", False),
+                "generation":       packet_generation,
+                "last_seen":        now,
+                "grpId":            grpid,
+                "name":             name,
+                "owner":            owner,
+                "zoneId":           zone,
+                "zone_type":        inferred_zone,
+                "tapped":           tapped,
+                "power":            power,
+                "toughness":        tough,
+                "cardTypes":        ctypes,
+                "token":            token,
+                "pending_add":      existing.get("pending_add", False),
+                "pending_graveyard":existing.get("pending_graveyard", False),
             }
 
         # Zone tracking
-        active_iids = set()
         for z in gm.get("zones", []):
             ztype = z.get("type", "")
             owner = z.get("ownerSeatId")
             iids  = z.get("objectInstanceIds", [])
-            for iid in iids:
-                active_iids.add(iid)
 
             if ztype == "ZoneType_Battlefield":
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Battlefield"
+                        state["instance_map"][iid]["last_seen"] = now
                     else:
                         state["instance_map"][iid] = {
-                            "generation": packet_generation,
+                            "generation": packet_generation, "last_seen": now,
                             "zone_type": "Battlefield", "owner": owner}
 
             elif ztype == "ZoneType_Hand" and my_seat != 0 and owner == my_seat:
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Hand"
+                        state["instance_map"][iid]["last_seen"] = now
                     else:
                         state["instance_map"][iid] = {
-                            "generation": packet_generation,
+                            "generation": packet_generation, "last_seen": now,
                             "zone_type": "Hand", "owner": owner, "name": None}
 
             elif ztype == "ZoneType_Graveyard" and my_seat != 0 and owner == opp_seat:
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Graveyard"
-                        info = state["instance_map"][iid]
-                        if not info.get("name") and info.get("grpId"):
-                            resolved = state["grp_map"].get(info["grpId"])
-                            if resolved:
-                                info["name"] = resolved
+                        state["instance_map"][iid]["last_seen"] = now
                     else:
                         state["instance_map"][iid] = {
-                            "generation": packet_generation,
+                            "generation": packet_generation, "last_seen": now,
                             "zone_type": "Graveyard", "owner": opp_seat, "name": None}
 
         # ZoneTransfer annotations — detect ALL cards entering graveyard (including mill)
-        # zone_src/zone_dest use integer zone IDs — map via zone_map
         for ann in gm.get("annotations", []):
             if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
                 continue
             details = {d["key"]: d for d in ann.get("details", [])}
-            src_id = (details.get("zone_src", {}).get("valueInt32", [None]) or [None])[0]
-            dst_id = (details.get("zone_dest", {}).get("valueInt32", [None]) or [None])[0]
+            src_id  = (details.get("zone_src",  {}).get("valueInt32", [None]) or [None])[0]
+            dst_id  = (details.get("zone_dest", {}).get("valueInt32", [None]) or [None])[0]
             src_type = state["zone_map"].get(src_id, "") if src_id is not None else ""
             dst_type = state["zone_map"].get(dst_id, "") if dst_id is not None else ""
             if dst_type != "Graveyard":
@@ -272,33 +324,43 @@ def parse_game_state(msg: dict):
                 owner = info.get("owner")
                 grpid = info.get("grpId")
                 name  = info.get("name") or state["grp_map"].get(grpid)
-                if not name or name in SKIP_NAMES:
+
+                # Bug #1 fix: queue pending graveyard resolution if name unknown
+                if not name:
+                    if grpid:
+                        lookup_grp(grpid)
+                        state["instance_map"][iid] = {
+                            **info,
+                            "pending_graveyard": True,
+                            "generation": packet_generation,
+                            "last_seen": now,
+                        }
                     continue
+
+                if name in SKIP_NAMES:
+                    continue
+
                 source = "mill" if is_mill else "other"
-                gy_key = (state["generation"], iid)
+                gy_key = (packet_generation, iid)
                 if gy_key not in state["graveyard_cards"]:
                     state["graveyard_cards"][gy_key] = {
                         "name": name, "owner": owner,
                         "turn": state["turn"], "source": source,
+                        "generation": packet_generation,
                     }
-                    # Add to opp_graveyard set for site
-                    if my_seat != 0 and owner == opp_seat:
+                    if my_seat != 0 and opp_seat != 0 and owner == opp_seat:
                         state["opp_graveyard"].add(name)
                         print(f"  [GRAVE] ({source}) seat={owner}: {name}")
-                    elif not name and grpid:
-                        # Queue lookup for unresolved milled cards
-                        lookup_grp(grpid)
-                    # Log event
                     state["event_log"].append({
                         "id": state["next_event_id"],
-                        "generation": state["generation"],
+                        "generation": packet_generation,
                         "turn": state["turn"],
                         "event": "graveyard",
                         "card": name, "owner": owner, "source": source,
                     })
                     state["next_event_id"] += 1
 
-        # CastSpell annotations — generation-scoped
+        # CastSpell annotations
         if my_seat != 0:
             for ann in gm.get("annotations", []):
                 if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
@@ -319,29 +381,33 @@ def parse_game_state(msg: dict):
                     if "CardType_Land" in ctypes or token:
                         continue
                     if name and name not in SKIP_NAMES:
-                        cast_key = f"{packet_generation}:{iid}:{owner}:{name}"
-                        state["all_cast_cards"][cast_key] = {
-                            "name": name, "owner": owner,
-                            "iid": iid, "generation": packet_generation,
-                        }
-                        state["event_log"].append({
-                            "id": state["next_event_id"],
-                            "generation": packet_generation,
-                            "turn": state["turn"],
-                            "event": "cast",
-                            "card": name, "owner": owner,
-                        })
-                        state["next_event_id"] += 1
-                        state["last_update"] = time.time()
-                        print(f"  [CAST ] seat={owner}: {name}")
+                        cast_key = (packet_generation, iid)
+                        if cast_key not in state["cast_seen"]:
+                            state["cast_seen"].add(cast_key)
+                            state["all_cast_cards"].append({
+                                "name": name, "owner": owner,
+                                "iid": iid, "generation": packet_generation,
+                                "turn": state["turn"],
+                                "event_id": state["next_event_id"],
+                            })
+                            state["event_log"].append({
+                                "id": state["next_event_id"],
+                                "generation": packet_generation,
+                                "turn": state["turn"],
+                                "event": "cast",
+                                "card": name, "owner": owner,
+                            })
+                            state["next_event_id"] += 1
+                            state["last_update"] = time.time()
+                            print(f"  [CAST ] seat={owner}: {name}")
                     elif grpid:
                         print(f"  [QUEUE] grp={grpid} not resolved, looking up...")
                         info["pending_add"] = True
                         lookup_grp(grpid)
 
-        # Rebuild hand, battlefields, graveyard — reject stale instances
+        # Rebuild hand and battlefields — reject stale instances
         my_hand, my_bf, opp_bf = [], [], []
-        for iid, info in list(state["instance_map"].items()):
+        for iid, info in state["instance_map"].items():
             if info.get("generation") != packet_generation:
                 continue
             zt    = info.get("zone_type", "")
@@ -354,17 +420,10 @@ def parse_game_state(msg: dict):
                     name = state["grp_map"].get(grpid)
                     if name:
                         info["name"] = name
-            if not name:
-                continue
-            if my_seat == 0:
+            if not name or my_seat == 0:
                 continue
             if zt == "Hand" and owner == my_seat and not is_token:
                 my_hand.append(name)
-            elif zt == "Graveyard" and owner == opp_seat and not is_token:
-                if name not in SKIP_NAMES:
-                    if name not in state["opp_graveyard"]:
-                        state["opp_graveyard"].add(name)
-                        print(f"  [GRAVE] Opponent graveyard: {name}")
             elif zt == "Battlefield":
                 entry = {
                     "name":      name + (" [Token]" if is_token else ""),
@@ -384,10 +443,13 @@ def parse_game_state(msg: dict):
         state["opp_battlefield"] = opp_bf
         state["last_update"]     = time.time()
 
-        # Garbage collect stale instances
-        remove = [iid for iid, info in state["instance_map"].items()
-                  if info.get("generation") != packet_generation
-                  or iid not in active_iids]
+        # Bug #3 fix: age-based GC only — don't remove by active_iids (packets are partial)
+        now2 = time.time()
+        remove = [
+            iid for iid, info in state["instance_map"].items()
+            if info.get("generation") != packet_generation
+            or now2 - info.get("last_seen", now2) > 120
+        ]
         for iid in remove:
             state["instance_map"].pop(iid, None)
 
@@ -398,7 +460,7 @@ def detect_seat(line: str):
     for m in re.finditer(r'"playerName"\s*:\s*"([^"]+)"\s*,\s*"systemSeatId"\s*:\s*(\d+)', line):
         name = m.group(1)
         seat = int(m.group(2))
-        if name == "RagingDachshund" and seat in (1, 2):
+        if name == PLAYER_NAME and seat in (1, 2):
             with lock:
                 if state["my_seat"] != seat:
                     state["my_seat"] = seat
@@ -409,22 +471,24 @@ def detect_seat(line: str):
 def push_to_firebase():
     try:
         with lock:
+            # Bug #6 fix: include both opp_graveyard and graveyard_cards
+            gy_names = sorted(list(state["opp_graveyard"]))
             payload = json.dumps({
-                "all_cast_cards": list(state["all_cast_cards"].values()),
-                "opp_graveyard":  sorted(list(state["opp_graveyard"])),
-                "my_hand":        state["my_hand"],
-                "my_battlefield": state["my_battlefield"],
-                "opp_battlefield":state["opp_battlefield"],
-                "phase":          state["phase"],
-                "turn":           state["turn"],
-                "my_life":        state["my_life"],
-                "opp_life":       state["opp_life"],
-                "last_update":    state["last_update"],
-                "match_game":     state["match_game"],
-                "my_seat":        state["my_seat"],
-                "generation":     state["generation"],
+                "all_cast_cards":  state["all_cast_cards"],
+                "opp_graveyard":   gy_names,
                 "graveyard_cards": list(state["graveyard_cards"].values()),
-                "event_log":      state["event_log"][-250:],
+                "event_log":       state["event_log"][-2000:],  # Bug #7 fix
+                "my_hand":         state["my_hand"],
+                "my_battlefield":  state["my_battlefield"],
+                "opp_battlefield": state["opp_battlefield"],
+                "phase":           state["phase"],
+                "turn":            state["turn"],
+                "my_life":         state["my_life"],
+                "opp_life":        state["opp_life"],
+                "last_update":     state["last_update"],
+                "match_game":      state["match_game"],
+                "my_seat":         state["my_seat"],
+                "generation":      state["generation"],
             }).encode()
         req = urllib.request.Request(
             f"{FIREBASE_URL}/state.json",
@@ -449,7 +513,6 @@ def push_loop():
             resp = urllib.request.urlopen(req, timeout=3)
             data = json.loads(resp.read())
             if data is True:
-                # Clear flag first
                 try:
                     urllib.request.urlopen(urllib.request.Request(
                         f"{FIREBASE_URL}/reset_requested.json",
@@ -467,7 +530,6 @@ def push_loop():
                 continue
         except Exception:
             pass
-
         if time.time() >= reset_hold_until:
             push_to_firebase()
         time.sleep(2)
@@ -555,7 +617,8 @@ if __name__ == "__main__":
     print("  MTG Arena Watcher  —  Generation-Scoped Edition")
     print("=" * 52)
     load_bulk()
-    print(f"Pushing to Firebase: {FIREBASE_URL}")
+    print(f"Player: {PLAYER_NAME}")
+    print(f"Firebase: {FIREBASE_URL}")
     print(f"Open: https://mtg-archetype-detector.pages.dev\n")
     threading.Thread(target=watch_log, daemon=True).start()
     threading.Thread(target=push_loop, daemon=True).start()
