@@ -274,6 +274,7 @@ def parse_game_state(msg: dict):
                 name  = info.get("name") or state["grp_map"].get(grpid)
                 if not name or name in SKIP_NAMES:
                     continue
+                source = "mill" if is_mill else "other"
                 gy_key = (state["generation"], iid)
                 if gy_key not in state["graveyard_cards"]:
                     state["graveyard_cards"][gy_key] = {
