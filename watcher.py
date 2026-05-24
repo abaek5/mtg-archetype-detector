@@ -41,6 +41,10 @@ state = {
     "my_seat":        0,
     "reset_time":     0,
     "ignored_generations": set(),
+    "graveyard_cards": {},     # (generation, iid) -> card info
+    "event_log":       [],     # chronological event history
+    "next_event_id":   0,
+    "cast_seen":       set(),  # (generation, iid) seen — prevent exact replay dedup only
 }
 
 # ── Hard reset ────────────────────────────────────────────────────────────────
@@ -60,9 +64,13 @@ def hard_reset_state(reason="manual"):
     state["my_life"]        = 20
     state["opp_life"]       = 20
     state["my_seat"]        = 0
-    state["match_start"]    = time.time()
-    state["reset_time"]     = time.time()
-    state["last_update"]    = time.time()
+    state["graveyard_cards"] = {}
+    state["event_log"]       = []
+    state["next_event_id"]   = 0
+    state["cast_seen"]       = set()
+    state["match_start"]     = time.time()
+    state["reset_time"]      = time.time()
+    state["last_update"]     = time.time()
     print(f"  [RESET] generation={state['generation']} reason={reason}")
 
 # ── Scryfall lookup ───────────────────────────────────────────────────────────
@@ -239,6 +247,43 @@ def parse_game_state(msg: dict):
                             "generation": packet_generation,
                             "zone_type": "Graveyard", "owner": opp_seat, "name": None}
 
+        # ZoneTransfer annotations — detect ALL cards entering graveyard (including mill)
+        for ann in gm.get("annotations", []):
+            if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
+                continue
+            details = {d["key"]: d for d in ann.get("details", [])}
+            src = details.get("zone_src", {}).get("valueString", [""])[0] if "zone_src" in details else ""
+            dst = details.get("zone_dest", {}).get("valueString", [""])[0] if "zone_dest" in details else ""
+            if "Graveyard" not in dst:
+                continue
+            for iid in ann.get("affectedIds", []):
+                info  = state["instance_map"].get(iid, {})
+                owner = info.get("owner")
+                grpid = info.get("grpId")
+                name  = info.get("name") or state["grp_map"].get(grpid)
+                if not name or name in SKIP_NAMES:
+                    continue
+                gy_key = (state["generation"], iid)
+                if gy_key not in state["graveyard_cards"]:
+                    source = "mill" if "Library" in src else "other"
+                    state["graveyard_cards"][gy_key] = {
+                        "name": name, "owner": owner,
+                        "turn": state["turn"], "source": source,
+                    }
+                    # Add to opp_graveyard set for site
+                    if my_seat != 0 and owner == opp_seat:
+                        state["opp_graveyard"].add(name)
+                        print(f"  [GRAVE] ({source}) seat={owner}: {name}")
+                    # Log event
+                    state["event_log"].append({
+                        "id": state["next_event_id"],
+                        "generation": state["generation"],
+                        "turn": state["turn"],
+                        "event": "graveyard",
+                        "card": name, "owner": owner, "source": source,
+                    })
+                    state["next_event_id"] += 1
+
         # CastSpell annotations — generation-scoped
         if my_seat != 0:
             for ann in gm.get("annotations", []):
@@ -265,6 +310,14 @@ def parse_game_state(msg: dict):
                             "name": name, "owner": owner,
                             "iid": iid, "generation": packet_generation,
                         }
+                        state["event_log"].append({
+                            "id": state["next_event_id"],
+                            "generation": packet_generation,
+                            "turn": state["turn"],
+                            "event": "cast",
+                            "card": name, "owner": owner,
+                        })
+                        state["next_event_id"] += 1
                         state["last_update"] = time.time()
                         print(f"  [CAST ] seat={owner}: {name}")
                     elif grpid:
@@ -356,6 +409,8 @@ def push_to_firebase():
                 "match_game":     state["match_game"],
                 "my_seat":        state["my_seat"],
                 "generation":     state["generation"],
+                "graveyard_cards": list(state["graveyard_cards"].values()),
+                "event_log":      state["event_log"][-250:],
             }).encode()
         req = urllib.request.Request(
             f"{FIREBASE_URL}/state.json",
