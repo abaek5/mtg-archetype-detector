@@ -252,9 +252,32 @@ def parse_game_state(msg: dict):
             if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
                 continue
             details = {d["key"]: d for d in ann.get("details", [])}
-            src = details.get("zone_src", {}).get("valueString", [""])[0] if "zone_src" in details else ""
-            dst = details.get("zone_dest", {}).get("valueString", [""])[0] if "zone_dest" in details else ""
-            if "Graveyard" not in dst:
+            # Debug: print all detail keys to find correct names
+            if details and state.get("debug_zone_once", 0) < 3:
+                state["debug_zone_once"] = state.get("debug_zone_once", 0) + 1
+                print(f"  [DEBUG] ZoneTransfer keys: {list(details.keys())}")
+                for k, v in details.items():
+                    print(f"  [DEBUG]   {k}: {v}")
+            # Try multiple possible key names for source/dest zones
+            src = ""
+            dst = ""
+            for key, val in details.items():
+                vs = val.get("valueString", [""])[0] if isinstance(val, dict) else ""
+                vi = val.get("valueInt32", [0])[0] if isinstance(val, dict) else 0
+                if "src" in key.lower() or "from" in key.lower() or "source" in key.lower():
+                    src = vs or str(vi)
+                if "dst" in key.lower() or "dest" in key.lower() or "to" in key.lower():
+                    dst = vs or str(vi)
+            # Also check zone IDs and map them
+            if not dst:
+                dst_id = details.get("zone_dest", {}).get("valueInt32", [None])[0]
+                if dst_id is not None:
+                    dst = state["zone_map"].get(dst_id, "")
+            if not src:
+                src_id = details.get("zone_src", {}).get("valueInt32", [None])[0]
+                if src_id is not None:
+                    src = state["zone_map"].get(src_id, "")
+            if "Graveyard" not in dst and "raveyard" not in dst:
                 continue
             for iid in ann.get("affectedIds", []):
                 info  = state["instance_map"].get(iid, {})
