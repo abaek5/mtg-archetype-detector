@@ -1347,11 +1347,6 @@ async function pollFirebase() {
     var graveyardCards = data.opp_graveyard || [];
     var allOppCards = [...new Set([...oppFromCast, ...graveyardCards])];
     
-    // If opponentCards was cleared but lastSeenCards still has old data, resync
-    if (opponentCards.length === 0 && lastSeenCards.length > 0) {
-      lastSeenCards = [];
-    }
-    
     // Dedupe using Set for O(1) lookup
     const seenSet = new Set(lastSeenCards);
     const oppSet = new Set(opponentCards);
