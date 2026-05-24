@@ -208,6 +208,8 @@ def parse_game_state(msg: dict):
             if state["match_game"] > 3:
                 state["match_game"] = 1
             hard_reset_state("new_game")
+            # Shorter reset window for in-match game transitions
+            state["reset_time"] = time.time() - 6  # only 2 second block
             return
 
         if cur_turn:
@@ -287,7 +289,8 @@ def parse_game_state(msg: dict):
                             "generation": packet_generation, "last_seen": now,
                             "zone_type": "Battlefield", "owner": owner}
 
-            elif ztype == "ZoneType_Hand" and my_seat != 0 and owner == my_seat:
+            elif ztype == "ZoneType_Hand":
+                # Track all hands — my_seat used later in rebuild
                 for iid in iids:
                     if iid in state["instance_map"]:
                         state["instance_map"][iid]["zone_type"] = "Hand"
