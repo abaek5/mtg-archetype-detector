@@ -248,37 +248,18 @@ def parse_game_state(msg: dict):
                             "zone_type": "Graveyard", "owner": opp_seat, "name": None}
 
         # ZoneTransfer annotations — detect ALL cards entering graveyard (including mill)
+        # zone_src/zone_dest use integer zone IDs — map via zone_map
         for ann in gm.get("annotations", []):
             if "AnnotationType_ZoneTransfer" not in ann.get("type", []):
                 continue
             details = {d["key"]: d for d in ann.get("details", [])}
-            # Debug: print all detail keys to find correct names
-            if details and state.get("debug_zone_once", 0) < 3:
-                state["debug_zone_once"] = state.get("debug_zone_once", 0) + 1
-                print(f"  [DEBUG] ZoneTransfer keys: {list(details.keys())}")
-                for k, v in details.items():
-                    print(f"  [DEBUG]   {k}: {v}")
-            # Try multiple possible key names for source/dest zones
-            src = ""
-            dst = ""
-            for key, val in details.items():
-                vs = val.get("valueString", [""])[0] if isinstance(val, dict) else ""
-                vi = val.get("valueInt32", [0])[0] if isinstance(val, dict) else 0
-                if "src" in key.lower() or "from" in key.lower() or "source" in key.lower():
-                    src = vs or str(vi)
-                if "dst" in key.lower() or "dest" in key.lower() or "to" in key.lower():
-                    dst = vs or str(vi)
-            # Also check zone IDs and map them
-            if not dst:
-                dst_id = details.get("zone_dest", {}).get("valueInt32", [None])[0]
-                if dst_id is not None:
-                    dst = state["zone_map"].get(dst_id, "")
-            if not src:
-                src_id = details.get("zone_src", {}).get("valueInt32", [None])[0]
-                if src_id is not None:
-                    src = state["zone_map"].get(src_id, "")
-            if "Graveyard" not in dst and "raveyard" not in dst:
+            src_id = (details.get("zone_src", {}).get("valueInt32", [None]) or [None])[0]
+            dst_id = (details.get("zone_dest", {}).get("valueInt32", [None]) or [None])[0]
+            src_type = state["zone_map"].get(src_id, "") if src_id is not None else ""
+            dst_type = state["zone_map"].get(dst_id, "") if dst_id is not None else ""
+            if dst_type != "Graveyard":
                 continue
+            is_mill = src_type == "Library"
             for iid in ann.get("affectedIds", []):
                 info  = state["instance_map"].get(iid, {})
                 owner = info.get("owner")
@@ -288,7 +269,6 @@ def parse_game_state(msg: dict):
                     continue
                 gy_key = (state["generation"], iid)
                 if gy_key not in state["graveyard_cards"]:
-                    source = "mill" if "Library" in src else "other"
                     state["graveyard_cards"][gy_key] = {
                         "name": name, "owner": owner,
                         "turn": state["turn"], "source": source,
@@ -297,6 +277,9 @@ def parse_game_state(msg: dict):
                     if my_seat != 0 and owner == opp_seat:
                         state["opp_graveyard"].add(name)
                         print(f"  [GRAVE] ({source}) seat={owner}: {name}")
+                    elif not name and grpid:
+                        # Queue lookup for unresolved milled cards
+                        lookup_grp(grpid)
                     # Log event
                     state["event_log"].append({
                         "id": state["next_event_id"],
