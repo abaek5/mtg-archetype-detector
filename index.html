@@ -1344,7 +1344,14 @@ async function pollFirebase() {
       .map(function(e) { return e.name; });
     
     // Always include graveyard cards — these are always opponent's (milled cards)
-    var allOppCards = [...new Set([...oppFromCast, ...(data.opp_graveyard||[])])];
+    // Always re-merge graveyard on every poll — graveyard grows as cards are milled
+    var graveyardCards = data.opp_graveyard || [];
+    var allOppCards = [...new Set([...oppFromCast, ...graveyardCards])];
+    
+    // Debug
+    if (graveyardCards.length > 0) {
+      console.log('[DEBUG] graveyard:', graveyardCards.length, 'cast:', oppFromCast.length, 'total:', allOppCards.length, 'lastSeen:', lastSeenCards.length);
+    }
     
     // Dedupe using Set for O(1) lookup
     const seenSet = new Set(lastSeenCards);
