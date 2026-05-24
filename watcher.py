@@ -55,7 +55,7 @@ def hard_reset_state(reason="manual"):
     state["all_cast_cards"] = {}
     state["opp_graveyard"]  = set()
     state["instance_map"]   = {}
-    state["zone_map"]       = {}
+    # zone_map intentionally preserved — zone IDs are stable per Arena session
     state["my_hand"]        = []
     state["my_battlefield"] = []
     state["opp_battlefield"]= []
@@ -128,6 +128,13 @@ def parse_game_state(msg: dict):
         packet_generation = state["generation"]
         my_seat  = state["my_seat"]
         opp_seat = (1 if my_seat == 2 else 2) if my_seat != 0 else 0
+
+        # Build zone_map FIRST — needed for ZoneTransfer annotation processing
+        for z in gm.get("zones", []):
+            zid   = z.get("zoneId")
+            ztype = z.get("type", "")
+            if zid and ztype:
+                state["zone_map"][zid] = ztype.replace("ZoneType_", "")
 
         # Turn info
         ti = gm.get("turnInfo", {})
