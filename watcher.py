@@ -426,7 +426,18 @@ def parse_game_state(msg: dict):
             if not name or my_seat == 0:
                 continue
             if zt == "Hand" and owner == my_seat and not is_token:
-                my_hand.append(name)
+                if name:
+                    my_hand.append(name)
+                else:
+                    # Trigger lookup for unresolved hand cards
+                    grpid = info.get("grpId")
+                    if grpid:
+                        resolved = state["grp_map"].get(grpid)
+                        if resolved:
+                            info["name"] = resolved
+                            my_hand.append(resolved)
+                        else:
+                            lookup_grp(grpid)
             elif zt == "Battlefield":
                 entry = {
                     "name":      name + (" [Token]" if is_token else ""),
