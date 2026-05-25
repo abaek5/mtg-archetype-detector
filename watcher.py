@@ -23,63 +23,89 @@ SKIP_NAMES = {"", "Plains", "Island", "Swamp", "Mountain", "Forest"}
 
 # ── Mulligan evaluator ───────────────────────────────────────────────────────
 def evaluate_hand(hand, on_draw=False, matchup="unknown"):
-    """Rule-based mulligan evaluator. Returns (decision, score, reasons)."""
-    one_drops  = {"Llanowar Elves", "Pelt Collector", "Scythecat Cub",
-                  "Hopeful Initiate", "Soul Warden", "Soulmender"}
-    ramp       = {"Lotus Cobra", "Cultivate", "Rampant Growth"}
-    key_threats= {"Old-Growth Troll", "Questing Beast", "Esika's Chariot",
-                  "Mossborn Hydra", "Vorinclex, Monstrous Raider",
-                  "Doubling Season", "Branching Evolution"}
+    """
+    Generic rule-based mulligan evaluator — works for any MTG deck.
+    Uses universal principles: land count, early plays, spell density.
+    Returns (decision, score, reasons)
+    """
+    # Universal land detection — covers all common land name patterns
+    land_patterns = [
+        "Forest","Island","Swamp","Mountain","Plains",
+        "Passage","Castle","Boseiju","Nykthos","Pathway",
+        "Clearing","Grove","Triome","Tarn","Delta","Marsh",
+        "Shore","Depths","Sanctum","Cavern","Haven","Hub",
+        "Spire","Garden","Pool","Tomb","Crypt","Vault",
+        "Gate","Vale","Ridge","Strand","Foothills","Fetch",
+        "Shock","Dual","Check","Fast","Pain","Filter",
+        "Horizon","Scrubland","Savannah","Taiga","Badlands",
+        "Plateau","Volcanic","Tundra","Bayou","Tropical",
+    ]
+    lands = [c for c in hand if any(p.lower() in c.lower() for p in land_patterns)]
+    spells = [c for c in hand if c not in lands]
 
-    land_words = ["Forest","Island","Swamp","Mountain","Plains",
-                  "Fabled Passage","Castle","Boseiju","Nykthos",
-                  "Pathway","Clearing","Grove","Triome","Shock","Tarn","Delta"]
-    lands = [c for c in hand if any(w in c for w in land_words)]
+    land_count  = len(lands)
+    spell_count = len(spells)
+    reasons     = []
+    score       = 0
 
-    reasons = []
-    score   = 0
-    land_count   = len(lands)
-    has_one_drop = any(c in one_drops   for c in hand)
-    has_ramp     = any(c in ramp        for c in hand)
-    has_threat   = any(c in key_threats for c in hand)
-
-    # Land check
+    # ── Universal land rules ──
     if land_count == 0:
-        return "MULLIGAN", -10, ["No lands"]
+        return "MULLIGAN", -10, ["No lands — automatic mulligan"]
+
     if land_count == 1:
-        score -= 2; reasons.append("1 land opener is risky")
-    if land_count >= 5:
-        score -= 2; reasons.append("Likely flood risk")
+        score -= 3
+        reasons.append("1 land — very risky opener")
 
-    # Early game
-    if not has_one_drop and not has_ramp:
-        score -= 3; reasons.append("No early board or ramp")
-    if has_one_drop:
-        score += 3; reasons.append("Early pressure available")
-    if has_ramp:
-        score += 3; reasons.append("Cobra/ramp acceleration present")
-
-    # Curve
-    if land_count >= 2 and (has_one_drop or has_ramp):
-        score += 2; reasons.append("Playable curve exists")
-
-    # Dead hand
-    if land_count <= 2 and not has_one_drop and not has_ramp:
-        score -= 4; reasons.append("No functional early game")
-
-    # Threat backup
-    if has_threat:
+    elif land_count == 2:
         score += 1
+        reasons.append("2 lands — functional if spells are cheap")
 
-    # On draw adjustment
+    elif land_count == 3:
+        score += 3
+        reasons.append("3 lands — ideal land count")
+
+    elif land_count == 4:
+        score += 1
+        reasons.append("4 lands — slightly heavy")
+
+    elif land_count >= 5:
+        score -= 2
+        reasons.append(f"{land_count} lands — flood risk")
+
+    # ── Spell density ──
+    if spell_count == 0:
+        score -= 3
+        reasons.append("All lands — no action")
+
+    elif spell_count >= 4:
+        score += 1
+        reasons.append("Spell-rich hand")
+
+    # ── 1-drop presence (universal aggro/tempo signal) ──
+    # Detect likely 1-drops by checking grpMap or common naming
+    # Since we don't have mana costs here, use heuristic: short card names tend to be cheap
+    short_names = [c for c in spells if len(c) <= 12]
+    if short_names:
+        score += 1
+        reasons.append("Likely early play available")
+
+    # ── Dead hand check ──
+    if land_count <= 2 and spell_count <= 1:
+        score -= 3
+        reasons.append("Too few spells with low land count")
+
+    # ── On draw adjustment ──
     if on_draw:
         score += 0.5
+        reasons.append("On draw: slightly looser keep")
 
-    # Aggro matchup adjustment
-    if matchup in ("aggro", "Mono-Red Aggro", "Burn"):
-        if land_count == 3 and not has_one_drop:
-            score -= 2; reasons.append("Slow vs aggro")
+    # ── Aggro matchup ──
+    if matchup in ("aggro", "Mono-Red Aggro", "Burn", "Mono-White Lifegain"):
+        if land_count >= 4:
+            score -= 1
+            reasons.append("Heavy hand vs aggro — risky")
 
+    # ── Final decision ──
     decision = "KEEP" if score >= 2 else "MULLIGAN"
     return decision, score, reasons
 
