@@ -524,32 +524,29 @@ def parse_game_state(msg: dict):
                         info["pending_add"] = True
                         lookup_grp(grpid)
 
-        # Rebuild hand and battlefields — reject stale instances
-        my_hand, my_bf, opp_bf = [], [], []
-        hand_instances = [(iid, info) for iid, info in state["instance_map"].items()
-                         if info.get("zone_type") == "Hand" and info.get("generation") == packet_generation]
+        # Rebuild hand/battlefield from authoritative object state
+        # Seat recovery pass first
+        if my_seat == 0:
+            for iid, info in state["instance_map"].items():
+                if (info.get("generation") == packet_generation
+                        and info.get("zone_type") == "Hand"
+                        and info.get("owner") in (1, 2)):
+                    state["my_seat"] = info["owner"]
+                    my_seat  = info["owner"]
+                    opp_seat = 1 if my_seat == 2 else 2
+                    print(f"  [RECOVER] inferred seat {my_seat} from hand ownership")
+                    break
+
+        my_hand_raw, my_bf, opp_bf = [], [], []
         for iid, info in state["instance_map"].items():
             if info.get("generation") != packet_generation:
                 continue
-            zt    = info.get("zone_type", "")
-            name  = info.get("name")
-            owner = info.get("owner")
+            zt       = info.get("zone_type", "")
+            name     = info.get("name")
+            owner    = info.get("owner")
             is_token = info.get("token", False)
-            if not name:
-                grpid = info.get("grpId")
-                if grpid:
-                    name = state["grp_map"].get(grpid)
-                    if name:
-                        info["name"] = name
-            # Fix 3: fallback seat recovery from hand ownership
-            if my_seat == 0 and zt == "Hand" and owner in (1, 2):
-                state["my_seat"] = owner
-                my_seat = owner
-                opp_seat = 1 if owner == 2 else 2
-                print(f"  [RECOVER] inferred seat from hand: seat {owner}")
-            if my_seat == 0:
-                continue
-            # For unresolved cards, trigger lookup
+
+            # Resolve name if missing
             if not name:
                 grpid = info.get("grpId")
                 if grpid:
@@ -559,10 +556,12 @@ def parse_game_state(msg: dict):
                         name = resolved
                     else:
                         lookup_grp(grpid)
-            if not name:
+
+            if my_seat == 0 or not name:
                 continue
+
             if zt == "Hand" and owner == my_seat and not is_token:
-                my_hand.append(name)
+                my_hand_raw.append(name)
             elif zt == "Battlefield":
                 entry = {
                     "name":      name + (" [Token]" if is_token else ""),
@@ -577,7 +576,7 @@ def parse_game_state(msg: dict):
                 elif owner == opp_seat:
                     opp_bf.append(entry)
 
-        # Fix 8: dedup hand (Arena resends objects during mulligans)
+        # Dedup hand — Arena resends objects during mulligans
         my_hand = list(dict.fromkeys(my_hand_raw))
 
         state["my_hand"]         = my_hand
