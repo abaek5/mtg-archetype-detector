@@ -13,6 +13,9 @@ import time
 import urllib.request
 from pathlib import Path
 
+# ── Session tracking ─────────────────────────────────────────────────────────
+SESSION_START = time.time()   # watcher start time — ignore log events before this
+
 # ── Scryfall rate limiting ────────────────────────────────────────────────────
 scryfall_semaphore = threading.Semaphore(2)   # max 2 concurrent requests
 failed_grp_ids     = set()                    # 404s — never retry
@@ -730,6 +733,16 @@ def parse_chunk(text: str):
     for line in text.split("\n"):
         if not line.strip():
             continue
+        # Check timestamp — skip lines from before this session started
+        # This prevents old match data from polluting current session
+        if '"timestamp"' in line:
+            try:
+                ts_str = line.split('"timestamp"')[1].split('"')[1]
+                ts = float(ts_str) / 1000.0  # Arena timestamps are milliseconds
+                if ts < SESSION_START - 30:   # allow 30s grace period
+                    continue
+            except Exception:
+                pass
         if "playerName" in line and "systemSeatId" in line:
             detect_seat(line)
         try:
@@ -748,8 +761,9 @@ def watch_log():
         print("\n[ERROR] Log not found. Enable Detailed Logs in Arena Settings.\n")
         return
     with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-        # Read entire log on startup to catch any in-progress match
-        f.seek(0)
+        # Seek to end — watch real-time only
+        # Starting from end prevents stale data from old matches
+        f.seek(0, 2)
         print("Ready — watching for game events.\n")
         buf = ""
         while True:
