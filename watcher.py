@@ -709,22 +709,8 @@ def watch_log():
         print("\n[ERROR] Log not found. Enable Detailed Logs in Arena Settings.\n")
         return
     with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-        # Scan last 5MB to find start of current match
         f.seek(0, 2)
-        file_size = f.tell()
-        scan_start = max(0, file_size - 5242880)
-        f.seek(scan_start)
-        if scan_start > 0:
-            f.readline()
-        # Find the last matchGameRoomStateChangedEvent (= start of current match)
-        match_pos = scan_start
-        cur_pos = f.tell()
-        for line in f:
-            if "matchGameRoomStateChangedEvent" in line:
-                match_pos = cur_pos
-            cur_pos += len(line.encode("utf-8", errors="replace"))
-        f.seek(match_pos)
-        print(f"Ready — watching from {(file_size - match_pos)//1024}KB back in log.\n")
+        print("Ready — watching for game events.\n")
         buf = ""
         while True:
             chunk = f.read(131072)
