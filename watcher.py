@@ -13,13 +13,15 @@ import time
 import urllib.request
 from pathlib import Path
 
-# ── Session tracking ─────────────────────────────────────────────────────────
-SESSION_START = time.time()   # watcher start time — ignore log events before this
-
 # ── Scryfall rate limiting ────────────────────────────────────────────────────
 scryfall_semaphore = threading.Semaphore(2)   # max 2 concurrent requests
 failed_grp_ids     = set()                    # 404s — never retry
 pending_lookups    = set()                    # in-flight — never duplicate
+
+# ── Scryfall rate limiting ────────────────────────────────────────────────────
+scryfall_semaphore = threading.Semaphore(2)
+failed_grp_ids     = set()
+pending_lookups    = set()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 FIREBASE_URL  = "https://mtg-detector-40285-default-rtdb.firebaseio.com"
@@ -148,8 +150,7 @@ state = {
 
     "grp_map":      {},
     "instance_map": {},
-    "zone_map":     {},   # zoneId -> zone type name, persisted across resets
-    "owner_hand_zones": {},  # ownerSeatId -> hand zoneId
+    "zone_map":     {},   # persisted across resets — zone IDs are stable
 
     "my_seat":      0,
     "reset_time":   0,
@@ -311,15 +312,12 @@ def parse_game_state(msg: dict):
         my_seat  = state["my_seat"]
         opp_seat = (1 if my_seat == 2 else 2) if my_seat != 0 else 0
 
-        # Build zone_map AND owner_hand_zones FIRST — before gameObjects processing
+        # Build zone_map FIRST — needed for ZoneTransfer annotation processing
         for z in gm.get("zones", []):
             zid   = z.get("zoneId")
             ztype = z.get("type", "")
-            owner_z = z.get("ownerSeatId")
             if zid and ztype:
                 state["zone_map"][zid] = ztype.replace("ZoneType_", "")
-            if ztype == "ZoneType_Hand" and zid and owner_z:
-                state["owner_hand_zones"][owner_z] = zid
 
         # Turn info
         ti = gm.get("turnInfo", {})
@@ -378,12 +376,7 @@ def parse_game_state(msg: dict):
                 continue
             name = state["grp_map"].get(grpid)
             existing = state["instance_map"].get(iid, {})
-            # Use zone_map if available, otherwise keep existing zone_type
             inferred_zone = state["zone_map"].get(zone, existing.get("zone_type", ""))
-            # If still unknown, check if zoneId matches a known hand zone
-            if not inferred_zone and zone and owner:
-                if state["owner_hand_zones"].get(owner) == zone:
-                    inferred_zone = "Hand"
             state["instance_map"][iid] = {
                 "generation":       packet_generation,
                 "last_seen":        now,
@@ -418,10 +411,6 @@ def parse_game_state(msg: dict):
                             "zone_type": "Battlefield", "owner": owner}
 
             elif ztype == "ZoneType_Hand":
-                # Track which zoneId belongs to which owner's hand
-                z_id = z.get("zoneId")
-                if owner and z_id:
-                    state["owner_hand_zones"][owner] = z_id
                 # Track all hands — my_seat used later in rebuild
                 for iid in iids:
                     if iid in state["instance_map"]:
@@ -540,29 +529,26 @@ def parse_game_state(msg: dict):
                         info["pending_add"] = True
                         lookup_grp(grpid)
 
-        # Rebuild hand/battlefield from authoritative object state
-        # Seat recovery pass first
-        if my_seat == 0:
-            for iid, info in state["instance_map"].items():
-                if (info.get("generation") == packet_generation
-                        and info.get("zone_type") == "Hand"
-                        and info.get("owner") in (1, 2)):
-                    state["my_seat"] = info["owner"]
-                    my_seat  = info["owner"]
-                    opp_seat = 1 if my_seat == 2 else 2
-                    print(f"  [RECOVER] inferred seat {my_seat} from hand ownership")
-                    break
-
-        my_hand_raw, my_bf, opp_bf = [], [], []
+        # Rebuild hand and battlefields — reject stale instances
+        my_hand, my_bf, opp_bf = [], [], []
+        hand_instances = [(iid, info) for iid, info in state["instance_map"].items()
+                         if info.get("zone_type") == "Hand" and info.get("generation") == packet_generation]
         for iid, info in state["instance_map"].items():
             if info.get("generation") != packet_generation:
                 continue
-            zt       = info.get("zone_type", "")
-            name     = info.get("name")
-            owner    = info.get("owner")
+            zt    = info.get("zone_type", "")
+            name  = info.get("name")
+            owner = info.get("owner")
             is_token = info.get("token", False)
-
-            # Resolve name if missing
+            if not name:
+                grpid = info.get("grpId")
+                if grpid:
+                    name = state["grp_map"].get(grpid)
+                    if name:
+                        info["name"] = name
+            if my_seat == 0:
+                continue
+            # For unresolved cards, trigger lookup
             if not name:
                 grpid = info.get("grpId")
                 if grpid:
@@ -572,12 +558,10 @@ def parse_game_state(msg: dict):
                         name = resolved
                     else:
                         lookup_grp(grpid)
-
-            if my_seat == 0 or not name:
+            if not name:
                 continue
-
             if zt == "Hand" and owner == my_seat and not is_token:
-                my_hand_raw.append(name)
+                my_hand.append(name)
             elif zt == "Battlefield":
                 entry = {
                     "name":      name + (" [Token]" if is_token else ""),
@@ -592,25 +576,10 @@ def parse_game_state(msg: dict):
                 elif owner == opp_seat:
                     opp_bf.append(entry)
 
-        # Dedup hand — Arena resends objects during mulligans
-        my_hand = list(dict.fromkeys(my_hand_raw))
-
-        # Debug: zone_type distribution on turn 1
-        if state.get("turn", 0) <= 1 and not state.get("_zone_debug_done") and state["instance_map"]:
-            state["_zone_debug_done"] = True
-            from collections import Counter
-            zt_counts = Counter(info.get("zone_type","(empty)") for info in state["instance_map"].values()
-                               if info.get("generation") == packet_generation)
-            print(f"  [ZDEBUG] zone_types: {dict(zt_counts)}, hand_cards={len(my_hand)}, seat={my_seat}")
-
         state["my_hand"]         = my_hand
         state["my_battlefield"]  = my_bf
         state["opp_battlefield"] = opp_bf
         state["last_update"]     = time.time()
-
-        # Fix 9: print hand for debugging
-        if my_hand:
-            print(f"  [HAND ] {my_hand}")
 
         # Bug #3 fix: age-based GC only — don't remove by active_iids (packets are partial)
         now2 = time.time()
@@ -624,34 +593,23 @@ def parse_game_state(msg: dict):
 
 # ── Seat detection ────────────────────────────────────────────────────────────
 def detect_seat(line: str):
-    """Robust seat detection — tries both field orderings."""
-    patterns = [
-        r'"playerName"\s*:\s*"([^"]+)"\s*,\s*"systemSeatId"\s*:\s*(\d+)',
-        r'"systemSeatId"\s*:\s*(\d+)\s*,\s*"playerName"\s*:\s*"([^"]+)"',
-    ]
-    for pattern in patterns:
-        for m in re.finditer(pattern, line):
-            try:
-                if pattern.startswith('"playerName"'):
-                    name, seat = m.group(1), int(m.group(2))
-                else:
-                    seat, name = int(m.group(1)), m.group(2)
-                if name == PLAYER_NAME and seat in (1, 2):
-                    with lock:
-                        if state["my_seat"] != seat:
-                            state["my_seat"] = seat
-                            print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
-                    return
-            except Exception:
-                continue
+    if "systemSeatId" not in line or "playerName" not in line:
+        return
+    for m in re.finditer(r'"playerName"\s*:\s*"([^"]+)"\s*,\s*"systemSeatId"\s*:\s*(\d+)', line):
+        name = m.group(1)
+        seat = int(m.group(2))
+        if name == PLAYER_NAME and seat in (1, 2):
+            with lock:
+                if state["my_seat"] != seat:
+                    state["my_seat"] = seat
+                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+            return
 
 # ── Firebase sync ─────────────────────────────────────────────────────────────
 def _get_mulligan_eval(hand):
     if not hand or len(hand) < 5:
         return None
-    print(f"  [MULL ] Evaluating hand: {hand}")
     decision, score, reasons = evaluate_hand(hand)
-    print(f"  [MULL ] {decision} (score={score})")
     return {"decision": decision, "score": score, "reasons": reasons}
 
 def push_to_firebase():
@@ -733,16 +691,6 @@ def parse_chunk(text: str):
     for line in text.split("\n"):
         if not line.strip():
             continue
-        # Check timestamp — skip lines from before this session started
-        # This prevents old match data from polluting current session
-        if '"timestamp"' in line:
-            try:
-                ts_str = line.split('"timestamp"')[1].split('"')[1]
-                ts = float(ts_str) / 1000.0  # Arena timestamps are milliseconds
-                if ts < SESSION_START - 30:   # allow 30s grace period
-                    continue
-            except Exception:
-                pass
         if "playerName" in line and "systemSeatId" in line:
             detect_seat(line)
         try:
@@ -761,9 +709,13 @@ def watch_log():
         print("\n[ERROR] Log not found. Enable Detailed Logs in Arena Settings.\n")
         return
     with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-        # Seek to end — watch real-time only
-        # Starting from end prevents stale data from old matches
+        # Read last 512KB to catch recent match events
         f.seek(0, 2)
+        size = f.tell()
+        start = max(0, size - 524288)
+        f.seek(start)
+        if start > 0:
+            f.readline()  # skip partial line
         print("Ready — watching for game events.\n")
         buf = ""
         while True:
