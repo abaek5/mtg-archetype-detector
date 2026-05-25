@@ -21,6 +21,68 @@ LOG_PATH      = Path(os.path.expandvars(
 ))
 SKIP_NAMES = {"", "Plains", "Island", "Swamp", "Mountain", "Forest"}
 
+# ── Mulligan evaluator ───────────────────────────────────────────────────────
+def evaluate_hand(hand, on_draw=False, matchup="unknown"):
+    """Rule-based mulligan evaluator. Returns (decision, score, reasons)."""
+    one_drops  = {"Llanowar Elves", "Pelt Collector", "Scythecat Cub",
+                  "Hopeful Initiate", "Soul Warden", "Soulmender"}
+    ramp       = {"Lotus Cobra", "Cultivate", "Rampant Growth"}
+    key_threats= {"Old-Growth Troll", "Questing Beast", "Esika's Chariot",
+                  "Mossborn Hydra", "Vorinclex, Monstrous Raider",
+                  "Doubling Season", "Branching Evolution"}
+
+    land_words = ["Forest","Island","Swamp","Mountain","Plains",
+                  "Fabled Passage","Castle","Boseiju","Nykthos",
+                  "Pathway","Clearing","Grove","Triome","Shock","Tarn","Delta"]
+    lands = [c for c in hand if any(w in c for w in land_words)]
+
+    reasons = []
+    score   = 0
+    land_count   = len(lands)
+    has_one_drop = any(c in one_drops   for c in hand)
+    has_ramp     = any(c in ramp        for c in hand)
+    has_threat   = any(c in key_threats for c in hand)
+
+    # Land check
+    if land_count == 0:
+        return "MULLIGAN", -10, ["No lands"]
+    if land_count == 1:
+        score -= 2; reasons.append("1 land opener is risky")
+    if land_count >= 5:
+        score -= 2; reasons.append("Likely flood risk")
+
+    # Early game
+    if not has_one_drop and not has_ramp:
+        score -= 3; reasons.append("No early board or ramp")
+    if has_one_drop:
+        score += 3; reasons.append("Early pressure available")
+    if has_ramp:
+        score += 3; reasons.append("Cobra/ramp acceleration present")
+
+    # Curve
+    if land_count >= 2 and (has_one_drop or has_ramp):
+        score += 2; reasons.append("Playable curve exists")
+
+    # Dead hand
+    if land_count <= 2 and not has_one_drop and not has_ramp:
+        score -= 4; reasons.append("No functional early game")
+
+    # Threat backup
+    if has_threat:
+        score += 1
+
+    # On draw adjustment
+    if on_draw:
+        score += 0.5
+
+    # Aggro matchup adjustment
+    if matchup in ("aggro", "Mono-Red Aggro", "Burn"):
+        if land_count == 3 and not has_one_drop:
+            score -= 2; reasons.append("Slow vs aggro")
+
+    decision = "KEEP" if score >= 2 else "MULLIGAN"
+    return decision, score, reasons
+
 # ── Shared state ──────────────────────────────────────────────────────────────
 lock = threading.Lock()
 state = {
@@ -482,6 +544,12 @@ def detect_seat(line: str):
             return
 
 # ── Firebase sync ─────────────────────────────────────────────────────────────
+def _get_mulligan_eval(hand):
+    if not hand or len(hand) < 5:
+        return None
+    decision, score, reasons = evaluate_hand(hand)
+    return {"decision": decision, "score": score, "reasons": reasons}
+
 def push_to_firebase():
     try:
         with lock:
@@ -493,6 +561,7 @@ def push_to_firebase():
                 "graveyard_cards": list(state["graveyard_cards"].values()),
                 "event_log":       state["event_log"][-2000:],  # Bug #7 fix
                 "my_hand":         state["my_hand"],
+                "mulligan_eval":   _get_mulligan_eval(state["my_hand"]),
                 "my_battlefield":  state["my_battlefield"],
                 "opp_battlefield": state["opp_battlefield"],
                 "phase":           state["phase"],
