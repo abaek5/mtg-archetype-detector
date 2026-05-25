@@ -249,6 +249,16 @@ def lookup_grp(grp_id: int):
                         continue
                     info["name"] = name
 
+                    # If card is in hand zone, update my_hand immediately
+                    if (info.get("zone_type") == "Hand"
+                            and info.get("owner") == state["my_seat"]
+                            and not info.get("token", False)
+                            and name not in SKIP_NAMES
+                            and name not in state["my_hand"]):
+                        state["my_hand"].append(name)
+                        state["last_update"] = time.time()
+                        print(f"  [HAND ] resolved: {name}")
+
                     # Resolve pending cast
                     if info.get("pending_add"):
                         info["pending_add"] = False
