@@ -541,6 +541,12 @@ def parse_game_state(msg: dict):
                     name = state["grp_map"].get(grpid)
                     if name:
                         info["name"] = name
+            # Fix 3: fallback seat recovery from hand ownership
+            if my_seat == 0 and zt == "Hand" and owner in (1, 2):
+                state["my_seat"] = owner
+                my_seat = owner
+                opp_seat = 1 if owner == 2 else 2
+                print(f"  [RECOVER] inferred seat from hand: seat {owner}")
             if my_seat == 0:
                 continue
             # For unresolved cards, trigger lookup
@@ -571,10 +577,17 @@ def parse_game_state(msg: dict):
                 elif owner == opp_seat:
                     opp_bf.append(entry)
 
+        # Fix 8: dedup hand (Arena resends objects during mulligans)
+        my_hand = list(dict.fromkeys(my_hand_raw))
+
         state["my_hand"]         = my_hand
         state["my_battlefield"]  = my_bf
         state["opp_battlefield"] = opp_bf
         state["last_update"]     = time.time()
+
+        # Fix 9: print hand for debugging
+        if my_hand:
+            print(f"  [HAND ] {my_hand}")
 
         # Bug #3 fix: age-based GC only — don't remove by active_iids (packets are partial)
         now2 = time.time()
@@ -588,23 +601,34 @@ def parse_game_state(msg: dict):
 
 # ── Seat detection ────────────────────────────────────────────────────────────
 def detect_seat(line: str):
-    if "systemSeatId" not in line or "playerName" not in line:
-        return
-    for m in re.finditer(r'"playerName"\s*:\s*"([^"]+)"\s*,\s*"systemSeatId"\s*:\s*(\d+)', line):
-        name = m.group(1)
-        seat = int(m.group(2))
-        if name == PLAYER_NAME and seat in (1, 2):
-            with lock:
-                if state["my_seat"] != seat:
-                    state["my_seat"] = seat
-                    print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
-            return
+    """Robust seat detection — tries both field orderings."""
+    patterns = [
+        r'"playerName"\s*:\s*"([^"]+)"\s*,\s*"systemSeatId"\s*:\s*(\d+)',
+        r'"systemSeatId"\s*:\s*(\d+)\s*,\s*"playerName"\s*:\s*"([^"]+)"',
+    ]
+    for pattern in patterns:
+        for m in re.finditer(pattern, line):
+            try:
+                if pattern.startswith('"playerName"'):
+                    name, seat = m.group(1), int(m.group(2))
+                else:
+                    seat, name = int(m.group(1)), m.group(2)
+                if name == PLAYER_NAME and seat in (1, 2):
+                    with lock:
+                        if state["my_seat"] != seat:
+                            state["my_seat"] = seat
+                            print(f"  [SEAT ] You are seat {seat}, opponent is seat {3-seat}")
+                    return
+            except Exception:
+                continue
 
 # ── Firebase sync ─────────────────────────────────────────────────────────────
 def _get_mulligan_eval(hand):
     if not hand or len(hand) < 5:
         return None
+    print(f"  [MULL ] Evaluating hand: {hand}")
     decision, score, reasons = evaluate_hand(hand)
+    print(f"  [MULL ] {decision} (score={score})")
     return {"decision": decision, "score": score, "reasons": reasons}
 
 def push_to_firebase():
