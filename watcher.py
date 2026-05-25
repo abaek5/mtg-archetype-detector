@@ -708,7 +708,13 @@ def watch_log():
         print("\n[ERROR] Log not found. Enable Detailed Logs in Arena Settings.\n")
         return
     with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+        # Read last 512KB to catch recent match events
         f.seek(0, 2)
+        size = f.tell()
+        start = max(0, size - 524288)
+        f.seek(start)
+        if start > 0:
+            f.readline()  # skip partial line
         print("Ready — watching for game events.\n")
         buf = ""
         while True:
@@ -746,8 +752,9 @@ def load_bulk():
         opener = urllib.request.build_opener()
         opener.addheaders = [("User-Agent", "MTGArchetypeDetector/1.0")]
         meta = json.loads(opener.open("https://api.scryfall.com/bulk-data", timeout=10).read())
-        url  = next((b["download_uri"] for b in meta.get("data", [])
-                     if b["type"] == "default_cards"), None)
+        bulk_data = meta.get("data", []) if isinstance(meta, dict) else meta
+        url  = next((b["download_uri"] for b in bulk_data
+                     if b.get("type") == "default_cards"), None)
         if url:
             print("Downloading card database...")
             with opener.open(url, timeout=60) as r:
