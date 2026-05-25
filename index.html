@@ -1576,10 +1576,36 @@ async function triggerMulliganAdvice() {
 function checkForOpeningHand(gameState) {
   if (!gameState || !gameState.my_hand) return;
   var hand = gameState.my_hand;
-  // Fire on first hand detection (7 cards = opening hand before mulligan)
   if (hand.length >= 5 && !mulliganAnalyzed) {
     mulliganAnalyzed = true;
     lastMulliganHand = hand.slice();
+
+    // Show instant local evaluation from watcher if available
+    var localEval = gameState.mulligan_eval;
+    if (localEval) {
+      var panel = document.getElementById('mulligan-panel');
+      var handEl = document.getElementById('mulligan-hand');
+      var verdictEl = document.getElementById('mulligan-verdict');
+      var reasonEl = document.getElementById('mulligan-reasoning');
+      if (panel) panel.style.display = 'block';
+      if (handEl) handEl.innerHTML = hand.map(function(c) {
+        return '<div style="padding:2px 0;border-bottom:1px solid rgba(180,150,80,0.08);">' + c + '</div>';
+      }).join('');
+      var color = localEval.decision === 'KEEP' ? '#4ECFA0' : '#F07070';
+      if (verdictEl) verdictEl.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<div style="font-size:16px;font-weight:700;color:' + color + ';">' +
+            (localEval.decision === 'KEEP' ? '✓ KEEP' : '✕ MULLIGAN') +
+          '</div>' +
+          '<div style="font-size:11px;color:' + color + ';">score: ' + localEval.score + '</div>' +
+          '<div style="font-size:10px;color:#8a8070;margin-left:4px;">⚡ instant</div>' +
+        '</div>';
+      if (reasonEl) reasonEl.innerHTML = (localEval.reasons || []).map(function(r) {
+        return '<div style="font-size:11px;color:#8a8070;padding:2px 0;">· ' + r + '</div>';
+      }).join('');
+    }
+
+    // Then fire Claude for deeper analysis
     triggerMulliganAdvice();
   }
 }
