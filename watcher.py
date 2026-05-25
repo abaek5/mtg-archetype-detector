@@ -416,8 +416,9 @@ def parse_game_state(msg: dict):
 
             elif ztype == "ZoneType_Hand":
                 # Track which zoneId belongs to which owner's hand
-                if owner and zid:
-                    state["owner_hand_zones"][owner] = zid
+                z_id = z.get("zoneId")
+                if owner and z_id:
+                    state["owner_hand_zones"][owner] = z_id
                 # Track all hands — my_seat used later in rebuild
                 for iid in iids:
                     if iid in state["instance_map"]:
