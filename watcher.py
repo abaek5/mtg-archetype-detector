@@ -13,6 +13,11 @@ import time
 import urllib.request
 from pathlib import Path
 
+# ── Scryfall rate limiting ────────────────────────────────────────────────────
+scryfall_semaphore = threading.Semaphore(2)   # max 2 concurrent requests
+failed_grp_ids     = set()                    # 404s — never retry
+pending_lookups    = set()                    # in-flight — never duplicate
+
 # ── Config ────────────────────────────────────────────────────────────────────
 FIREBASE_URL  = "https://mtg-detector-40285-default-rtdb.firebaseio.com"
 PLAYER_NAME   = os.environ.get("MTGA_PLAYER_NAME", "RagingDachshund")
@@ -189,17 +194,41 @@ def hard_reset_state(reason="manual"):
 
 # ── Scryfall lookup ───────────────────────────────────────────────────────────
 def lookup_grp(grp_id: int):
+    with lock:
+        if grp_id in state["grp_map"]:  return   # already resolved
+        if grp_id in failed_grp_ids:    return   # known 404
+        if grp_id in pending_lookups:   return   # already in flight
+        pending_lookups.add(grp_id)
+
     def _fetch():
         try:
-            req = urllib.request.Request(
-                f"https://api.scryfall.com/cards/arena/{grp_id}",
-                headers={"User-Agent": "MTGArchetypeDetector/1.0",
-                         "Accept": "application/json"}
-            )
-            data = urllib.request.urlopen(req, timeout=6).read()
+            with scryfall_semaphore:
+                time.sleep(0.1)  # 100ms between requests per slot
+                req = urllib.request.Request(
+                    f"https://api.scryfall.com/cards/arena/{grp_id}",
+                    headers={"User-Agent": "MTGArchetypeDetector/1.0",
+                             "Accept": "application/json"}
+                )
+                try:
+                    data = urllib.request.urlopen(req, timeout=6).read()
+                except urllib.error.HTTPError as he:
+                    if he.code == 404:
+                        with lock:
+                            failed_grp_ids.add(grp_id)
+                            pending_lookups.discard(grp_id)
+                        return
+                    elif he.code == 429:
+                        time.sleep(5)   # back off on rate limit
+                        with lock:
+                            pending_lookups.discard(grp_id)
+                        return
+                    raise
             obj  = json.loads(data)
             name = obj.get("name", "")
             if not name:
+                with lock:
+                    failed_grp_ids.add(grp_id)
+                    pending_lookups.discard(grp_id)
                 return
             with lock:
                 state["grp_map"][grp_id] = name
@@ -262,6 +291,9 @@ def lookup_grp(grp_id: int):
                             state["last_update"] = time.time()
         except Exception as e:
             print(f"  [ERR  ] Scryfall lookup grp={grp_id}: {e}")
+        finally:
+            with lock:
+                pending_lookups.discard(grp_id)
     threading.Thread(target=_fetch, daemon=True).start()
 
 # ── Game state parser ─────────────────────────────────────────────────────────
