@@ -620,14 +620,18 @@ def push_to_firebase():
     try:
         with lock:
             # Bug #6 fix: include both opp_graveyard and graveyard_cards
-            gy_names = sorted(list(state["opp_graveyard"]))
-            payload = json.dumps({
-                "all_cast_cards":  state["all_cast_cards"],
+            gy_names    = sorted(list(state["opp_graveyard"]))
+            hand_copy   = list(state["my_hand"])
+            cast_copy   = list(state["all_cast_cards"])
+            gy_cards    = list(state["graveyard_cards"].values())
+            evlog_copy  = state["event_log"][-2000:]
+            snap = {
+                "all_cast_cards":  cast_copy,
                 "opp_graveyard":   gy_names,
-                "graveyard_cards": list(state["graveyard_cards"].values()),
-                "event_log":       state["event_log"][-2000:],  # Bug #7 fix
-                "my_hand":         state["my_hand"],
-                "mulligan_eval":   _get_mulligan_eval(state["my_hand"]),
+                "graveyard_cards": gy_cards,
+                "event_log":       evlog_copy,
+                "my_hand":         hand_copy,
+                "mulligan_eval":   _get_mulligan_eval(hand_copy),
                 "my_battlefield":  state["my_battlefield"],
                 "opp_battlefield": state["opp_battlefield"],
                 "phase":           state["phase"],
@@ -638,7 +642,8 @@ def push_to_firebase():
                 "match_game":      state["match_game"],
                 "my_seat":         state["my_seat"],
                 "generation":      state["generation"],
-            }).encode()
+            }
+        payload = json.dumps(snap).encode()
         req = urllib.request.Request(
             f"{FIREBASE_URL}/state.json",
             data=payload, method="PUT",
@@ -647,7 +652,9 @@ def push_to_firebase():
         )
         urllib.request.urlopen(req, timeout=5)
     except Exception as e:
+        import traceback
         print(f"  [WARN] Firebase sync failed: {e}")
+        traceback.print_exc()
 
 reset_hold_until = 0
 
