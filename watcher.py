@@ -579,6 +579,14 @@ def parse_game_state(msg: dict):
         # Dedup hand — Arena resends objects during mulligans
         my_hand = list(dict.fromkeys(my_hand_raw))
 
+        # Debug: zone_type distribution on turn 1
+        if state.get("turn", 0) <= 1 and not state.get("_zone_debug_done") and state["instance_map"]:
+            state["_zone_debug_done"] = True
+            from collections import Counter
+            zt_counts = Counter(info.get("zone_type","(empty)") for info in state["instance_map"].values()
+                               if info.get("generation") == packet_generation)
+            print(f"  [ZDEBUG] zone_types: {dict(zt_counts)}, hand_cards={len(my_hand)}, seat={my_seat}")
+
         state["my_hand"]         = my_hand
         state["my_battlefield"]  = my_bf
         state["opp_battlefield"] = opp_bf
