@@ -735,13 +735,8 @@ def watch_log():
         print("\n[ERROR] Log not found. Enable Detailed Logs in Arena Settings.\n")
         return
     with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-        # Read last 2MB to catch recent match events
-        f.seek(0, 2)
-        size = f.tell()
-        start = max(0, size - 2097152)
-        f.seek(start)
-        if start > 0:
-            f.readline()  # skip partial line
+        # Read entire log on startup to catch any in-progress match
+        f.seek(0)
         print("Ready — watching for game events.\n")
         buf = ""
         while True:
