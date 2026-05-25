@@ -304,7 +304,7 @@ def parse_game_state(msg: dict):
 
     with lock:
         # Block ALL events during reset window
-        if time.time() < state.get("reset_time", 0) + 8:
+        if time.time() < state.get("reset_time", 0) + 3:
             return
 
         packet_generation = state["generation"]
@@ -329,7 +329,7 @@ def parse_game_state(msg: dict):
                 state["match_game"] = 1
             hard_reset_state("new_game")
             # Shorter reset window for in-match game transitions
-            state["reset_time"] = time.time() - 6  # only 2 second block
+            state["reset_time"] = time.time() - 2  # only 1 second block
             return
 
         if cur_turn:
@@ -532,11 +532,6 @@ def parse_game_state(msg: dict):
         my_hand, my_bf, opp_bf = [], [], []
         hand_instances = [(iid, info) for iid, info in state["instance_map"].items()
                          if info.get("zone_type") == "Hand" and info.get("generation") == packet_generation]
-        if hand_instances and not state.get("_debug_hand_printed"):
-            state["_debug_hand_printed"] = True
-            print(f"  [DEBUG] Hand instances: {len(hand_instances)}, my_seat={my_seat}")
-            for iid, info in hand_instances[:3]:
-                print(f"  [DEBUG]   iid={iid} owner={info.get('owner')} name={info.get('name')} grpId={info.get('grpId')}")
         for iid, info in state["instance_map"].items():
             if info.get("generation") != packet_generation:
                 continue
