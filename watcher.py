@@ -303,10 +303,6 @@ def parse_game_state(msg: dict):
         return
 
     with lock:
-        # Block ALL events during reset window
-        if time.time() < state.get("reset_time", 0) + 3:
-            return
-
         packet_generation = state["generation"]
         my_seat  = state["my_seat"]
         opp_seat = (1 if my_seat == 2 else 2) if my_seat != 0 else 0
