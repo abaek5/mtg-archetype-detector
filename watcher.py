@@ -145,7 +145,8 @@ state = {
 
     "grp_map":      {},
     "instance_map": {},
-    "zone_map":     {},   # persisted across resets — zone IDs are stable
+    "zone_map":     {},   # zoneId -> zone type name, persisted across resets
+    "owner_hand_zones": {},  # ownerSeatId -> hand zoneId
 
     "my_seat":      0,
     "reset_time":   0,
@@ -371,7 +372,12 @@ def parse_game_state(msg: dict):
                 continue
             name = state["grp_map"].get(grpid)
             existing = state["instance_map"].get(iid, {})
+            # Use zone_map if available, otherwise keep existing zone_type
             inferred_zone = state["zone_map"].get(zone, existing.get("zone_type", ""))
+            # If still unknown, check if zoneId matches a known hand zone
+            if not inferred_zone and zone and owner:
+                if state["owner_hand_zones"].get(owner) == zone:
+                    inferred_zone = "Hand"
             state["instance_map"][iid] = {
                 "generation":       packet_generation,
                 "last_seen":        now,
@@ -406,6 +412,9 @@ def parse_game_state(msg: dict):
                             "zone_type": "Battlefield", "owner": owner}
 
             elif ztype == "ZoneType_Hand":
+                # Track which zoneId belongs to which owner's hand
+                if owner and zid:
+                    state["owner_hand_zones"][owner] = zid
                 # Track all hands — my_seat used later in rebuild
                 for iid in iids:
                     if iid in state["instance_map"]:
