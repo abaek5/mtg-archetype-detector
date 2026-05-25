@@ -308,12 +308,15 @@ def parse_game_state(msg: dict):
         my_seat  = state["my_seat"]
         opp_seat = (1 if my_seat == 2 else 2) if my_seat != 0 else 0
 
-        # Build zone_map FIRST — needed for ZoneTransfer annotation processing
+        # Build zone_map AND owner_hand_zones FIRST — before gameObjects processing
         for z in gm.get("zones", []):
             zid   = z.get("zoneId")
             ztype = z.get("type", "")
+            owner_z = z.get("ownerSeatId")
             if zid and ztype:
                 state["zone_map"][zid] = ztype.replace("ZoneType_", "")
+            if ztype == "ZoneType_Hand" and zid and owner_z:
+                state["owner_hand_zones"][owner_z] = zid
 
         # Turn info
         ti = gm.get("turnInfo", {})
